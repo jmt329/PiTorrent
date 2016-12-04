@@ -68,16 +68,32 @@ def decode(b):
     elif(b[0].isdigit()):
         return decode_str(b)
 
-# helper function that takes in a string s and returns the first key value pair
-# and the rest of the string in the form (key, value, rest)
-def dict_helper(s):
-    pass
+# returns int encoded in b
+def decode_int(b):
+    return int(b[1:-1])
 
-# returns the dictionary encoded in d
-def decode_dict(d):
-    decoded_d = {}
-    d = d[1:-1] # get rid of surrounding d and e
-    while(len(d) != 0):
-        (key, value, d) = dict_helper(d)
-        decoded_d[key] = value
-    return decoded_d
+# returns str encoded at the beginning b, drops the rest of b
+def decode_str(b):
+    length, string = b.split(':', 1)
+    length = int(length)
+    return string[0:length]
+
+def decode_list(b):
+    elements = b[1:-1]
+    lst = []
+    while(len(elements) != 0):
+        if(elements[0] == 'i'):
+            # e is first int, elements contain the rest of the elements
+            e, elements = elements.split('e', 1)
+            lst.append(decode(e+'e'))
+        elif(elements[0] == 'd' or elements[0] == 'l'):
+            pass
+        else:
+            # must be a string
+            e = decode_str(elements)
+            lst.append(e)
+            elements = elements[elements.find(e)+len(e):]
+    return lst
+
+def decode_dict(b):
+    pass
