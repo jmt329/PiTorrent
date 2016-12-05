@@ -228,7 +228,7 @@ def get_peers():
     }
     server_url = "http://" + info['announce']
     r = requests.get(server_url, params=payload)
-    r_d = bencode.dbencode(r.text)
+    r_d = bencode.bdecode(r.text)
     return ConnectedPeers(r_d['peers'])
 
 def serverloop():
