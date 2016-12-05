@@ -8,12 +8,12 @@ import requests
 import bencode
 from threading import Lock, Condition, Thread
 
-host = "127.0.0.1"
-port = 8765
+my_host = "127.0.0.1"
+my_port = 8080
 BUFFER_SIZE = 1024
 info_filename = ""
 info = {}
-peer_id = ""
+my_peer_id = ""
 # Instead, you can pass command-line arguments
 # -h/--host [IP] -p/--port [PORT]
 # to put your server on a different IP/port.
@@ -43,9 +43,10 @@ class ConnectionQueue:
 
 class ConnectedPeers:
 
-  def __init__(self):
-    self.connected = []
+  def __init__(self, lst=[]):
+    self.connected = lst
     self.lock = Lock()
+    self.noPeers = Condition(self.lock)
 
   def add(self, c):
     with self.lock:
@@ -54,6 +55,12 @@ class ConnectedPeers:
   def contains(self, c):
     with self.lock:
       return c in self.connected
+
+  def get_peer(self):
+    with self.lock:
+      while(len(self.connect) == 0):
+        self.noPeers.wait()
+      return self.connected.pop()
 
 
 class Seeder(Thread):
@@ -75,25 +82,24 @@ class Seeder(Thread):
 class Requester(Thread):
   """Requester threads for requesting pieces from other clients"""
 
-  def __init__(self, connectionQueue, peer_list):
+  def __init__(self, peer_list):
     Thread.__init__(self)
-    self.peer_list = peer_list # peers with open connection
+    self.peer_list = peer_list # peers from server
 
   def run(self):
     # Get work to do and do it
     while True:
-      # Get a list of peers from the server
-      pass
+      peer = self.peer_list.get_peer()
+      if(peer['peer_id'] != my_peer_id):
+        sock = sock.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((peer['ip'], peer['port']))
+        rh = RequestHandler(sock)
+        rh.handle()
 
+class Handler:
 
-class ConnectionHandler:
-  """Handles a single client request"""
-
-  def __init__(self, sock, peer_list):
+  def __init__(self, sock):
     self.sock = sock
-    self.state = "NOT_CONNECTED"
-    self.timeout = 10
-    self.peer_list = peer_list
 
   def send(self, message):
     self.sock.send(message)
@@ -116,7 +122,7 @@ class ConnectionHandler:
       print "Wrong info hash"
       return False
     name_sha1 = hashlib.sha1()
-    name_sha1.update(peer_id)
+    name_sha1.update(my_peer_id)
     name_hash = bytearray(name_sha1.digest())
     if(self.peer_list.contains(hs[48:]) or (hs[48:] == name_hash)):
       print "Same name as current peer"
@@ -133,7 +139,7 @@ class ConnectionHandler:
     meta_sha1.update(bencode.bencode(info['info']))
     info_hash = bytearray(meta_sha1.digest())
     name_sha1 = hashlib.sha1()
-    name_sha1.update(peer_id)
+    name_sha1.update(my_peer_id)
     name_hash = bytearray(name_sha1.digest())
     return nameLength + protocolName + reserved + info_hash + name_hash
 
@@ -150,6 +156,51 @@ class ConnectionHandler:
       hs = self.make_handshake()
       self.send(hs)
 
+class RequestHandler(Handler):
+  """Makes a request to a single client"""
+
+  def __init__(self, sock):
+    Handler.__init__(self, sock)
+    self.state = "NOT_CONNECTED"
+    self.timeout = 10
+
+  def init_handshake():
+    # first assemble string of bytes
+    hs = make_handshake()
+    # send handshake
+    self.send(hs)
+    # check recived handshake
+    remote_hs = self.recv()
+    if(not remote_hs or not check_handshake(remote_hs)):
+        print "closing socket"
+        clientsocket.close()
+    else:
+        print "Handshake done"
+
+  def handle(self):
+    try:
+      while True:
+        print("got connection")
+        if(self.state == "NOT_CONNECTED"):
+          self.init_handshake()
+          self.sock.close()
+        return
+    except socket.timeout:
+      self.sock.close()
+    except socket.error:
+      self.sock.close()
+
+
+
+class ConnectionHandler(Handler):
+  """Handles a single client request"""
+
+  def __init__(self, sock, peer_list):
+    Handler.__init__(self, sock)
+    self.state = "NOT_CONNECTED"
+    self.timeout = 10
+    self.peer_list = peer_list
+
   def handle(self):
     try:
       while True:
@@ -163,6 +214,22 @@ class ConnectionHandler:
     except socket.error:
       self.sock.close()
 
+def get_peers():
+    info_sha1 = hashlib.sha1()
+    info_sha1.update(bencode.bencode(info['info']))
+    info_hash = str(bytearray(info_sha1.digest()))
+    payload = {
+      'info_hash'  : info_hash,
+      'peer_id'    : my_peer_id,
+      'port'       : my_port,
+      'uploaded'   : str(0),
+      'downloaded' : str(0),
+      'left'       : str(info['info']['length'])
+    }
+    server_url = "http://" + info['announce']
+    r = requests.get(server_url, params=payload)
+    r_d = bencode.dbencode(r.text)
+    return ConnectedPeers(r_d['peers'])
 
 def serverloop():
   """The main server loop"""
@@ -172,21 +239,26 @@ def serverloop():
   # after the socket is closed
   serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   # bind the socket to the local loopback IP address and special port
-  serversocket.bind((host, port))
+  serversocket.bind((my_host, my_port))
   # start listening with a backlog of 5 connections
   serversocket.listen(5)
 
   # Thread Pool
-  threadPool = []
+  seederThreadPool    = []
+  requesterThreadPool = []
   # List of waiting connections
   connectionList = ConnectionQueue()
-  peer_list = ConnectedPeers()
+  connected_list = ConnectedPeers()
 
+  potential_peers = get_peers()
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections
-    seederThread = Seeder(connectionList, peer_list)
-    threadPool.append(seederThread)
+    seederThread    = Seeder(connectionList, connected_list)
+    requesterThread = Requester(potential_peers)
+    seederThreadPool.append(seederThread)
+    requesterThreadPool.append(requesterThread)
     seederThread.start()
+    requesterThread.start()
 
   while True:
     # accept a connection
@@ -198,21 +270,21 @@ def serverloop():
 
 # DO NOT CHANGE BELOW THIS LINE
 
-opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:p:', \
+opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:i:', \
                            ['host=', 'port=', 'metainfo=', 'peer_id='])
 
 for k, v in opts:
     if k in ('-h', '--host'):
-      host = v
+      my_host = v
     if k in ('-p', '--port'):
-      port = int(v)
+      my_port = int(v)
     if k in ('-m', '--metainfo'):
       info_filename = v
       with open(info_filename, 'rb') as f:
         info = bencode.bdecode(f.read())
-    if k in ('-p', '--peer_id'):
-      peer_id = k
+    if k in ('-i', '--peer_id'):
+      my_peer_id = v
 
 
-print("Server coming up on %s:%i" % (host, port))
+print("Server coming up on %s:%i" % (my_host, my_port))
 serverloop()
