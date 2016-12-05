@@ -9,7 +9,7 @@ import bencode
 import sys
 from threading import Lock, Condition, Thread
 
-my_host = "127.0.0.1"
+my_host = "0.0.0.0"
 my_port = 8080
 BUFFER_SIZE = 1024
 info_filename = ""
