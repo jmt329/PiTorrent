@@ -4,13 +4,16 @@ import sys
 import time
 import os
 import hashlib
+import requests
+import bencode
 from threading import Lock, Condition, Thread
 
 host = "127.0.0.1"
 port = 8765
 BUFFER_SIZE = 1024
-info = "TestMetainfo"
-peer_name = "TestPeer2"
+info_filename = ""
+info = {}
+peer_id = ""
 # Instead, you can pass command-line arguments
 # -h/--host [IP] -p/--port [PORT]
 # to put your server on a different IP/port.
@@ -53,8 +56,8 @@ class ConnectedPeers:
       return c in self.connected
 
 
-class Worker(Thread):
-  """Worker threads for handling clients"""
+class Seeder(Thread):
+  """Seeder threads for handling clients requesting pieces"""
 
   def __init__(self, connectionQueue, peer_list):
     Thread.__init__(self)
@@ -68,6 +71,20 @@ class Worker(Thread):
       sock = self.connections.getConnection()
       ct = ConnectionHandler(sock, self.peer_list)
       ct.handle()
+
+class Requester(Thread):
+  """Requester threads for requesting pieces from other clients"""
+
+  def __init__(self, connectionQueue, peer_list):
+    Thread.__init__(self)
+    self.peer_list = peer_list # peers with open connection
+
+  def run(self):
+    # Get work to do and do it
+    while True:
+      # Get a list of peers from the server
+      pass
+
 
 class ConnectionHandler:
   """Handles a single client request"""
@@ -93,13 +110,13 @@ class ConnectionHandler:
       print "Wrong protocol"
       return False
     meta_sha1 = hashlib.sha1()
-    meta_sha1.update(info)
+    meta_sha1.update(bencode.bencode(info['info']))
     info_hash = bytearray(meta_sha1.digest())
     if(hs[28:48] != info_hash):
       print "Wrong info hash"
       return False
     name_sha1 = hashlib.sha1()
-    name_sha1.update(peer_name)
+    name_sha1.update(peer_id)
     name_hash = bytearray(name_sha1.digest())
     if(self.peer_list.contains(hs[48:]) or (hs[48:] == name_hash)):
       print "Same name as current peer"
@@ -113,10 +130,10 @@ class ConnectionHandler:
     protocolName = bytearray("BitTorrent protocol")
     reserved = bytearray(8)
     meta_sha1 = hashlib.sha1()
-    meta_sha1.update(info)
+    meta_sha1.update(bencode.bencode(info['info']))
     info_hash = bytearray(meta_sha1.digest())
     name_sha1 = hashlib.sha1()
-    name_sha1.update(peer_name)
+    name_sha1.update(peer_id)
     name_hash = bytearray(name_sha1.digest())
     return nameLength + protocolName + reserved + info_hash + name_hash
 
@@ -146,6 +163,7 @@ class ConnectionHandler:
     except socket.error:
       self.sock.close()
 
+
 def serverloop():
   """The main server loop"""
 
@@ -164,11 +182,11 @@ def serverloop():
   connectionList = ConnectionQueue()
   peer_list = ConnectedPeers()
 
-  for i in xrange(32):
-    # Create the 32 consumer threads for the connections
-    workerThread = Worker(connectionList, peer_list)
-    threadPool.append(workerThread)
-    workerThread.start()
+  for i in xrange(8):
+    # Create the 8 seeder threads for requesting connections
+    seederThread = Seeder(connectionList, peer_list)
+    threadPool.append(seederThread)
+    seederThread.start()
 
   while True:
     # accept a connection
@@ -180,13 +198,21 @@ def serverloop():
 
 # DO NOT CHANGE BELOW THIS LINE
 
-opts, args = getopt.getopt(sys.argv[1:], 'h:p:', ['host=', 'port='])
+opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:p:', \
+                           ['host=', 'port=', 'metainfo=', 'peer_id='])
 
 for k, v in opts:
     if k in ('-h', '--host'):
       host = v
     if k in ('-p', '--port'):
       port = int(v)
+    if k in ('-m', '--metainfo'):
+      info_filename = v
+      with open(info_filename, 'rb') as f:
+        info = bencode.bdecode(f.read())
+    if k in ('-p', '--peer_id'):
+      peer_id = k
+
 
 print("Server coming up on %s:%i" % (host, port))
 serverloop()
