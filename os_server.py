@@ -6,6 +6,7 @@ import os
 import hashlib
 import requests
 import bencode
+import sys
 from threading import Lock, Condition, Thread
 
 my_host = "127.0.0.1"
@@ -58,7 +59,7 @@ class ConnectedPeers:
 
   def get_peer(self):
     with self.lock:
-      while(len(self.connect) == 0):
+      while(len(self.connected) == 0):
         self.noPeers.wait()
       return self.connected.pop()
 
@@ -66,40 +67,42 @@ class ConnectedPeers:
 class Seeder(Thread):
   """Seeder threads for handling clients requesting pieces"""
 
-  def __init__(self, connectionQueue, peer_list):
+  def __init__(self, connectionQueue, connected_list):
     Thread.__init__(self)
     self.connections = connectionQueue
-    self.peer_list = peer_list
+    self.connected_list = connected_list
 
   def run(self):
     # Get work to do and do it
     while True:
       # Get a connection
       sock = self.connections.getConnection()
-      ct = ConnectionHandler(sock, self.peer_list)
+      ct = ConnectionHandler(sock, self.connected_list)
       ct.handle()
 
 class Requester(Thread):
   """Requester threads for requesting pieces from other clients"""
 
-  def __init__(self, peer_list):
+  def __init__(self, peer_list, connected_peers):
     Thread.__init__(self)
     self.peer_list = peer_list # peers from server
+    self.connected_peers = connected_peers
 
   def run(self):
     # Get work to do and do it
     while True:
       peer = self.peer_list.get_peer()
       if(peer['peer_id'] != my_peer_id):
-        sock = sock.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((peer['ip'], peer['port']))
-        rh = RequestHandler(sock)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((peer['ip'], int(peer['port'])))
+        rh = RequestHandler(sock, self.connected_peers)
         rh.handle()
 
 class Handler:
 
-  def __init__(self, sock):
+  def __init__(self, sock, connected_list):
     self.sock = sock
+    self.connected_list = connected_list
 
   def send(self, message):
     self.sock.send(message)
@@ -124,10 +127,10 @@ class Handler:
     name_sha1 = hashlib.sha1()
     name_sha1.update(my_peer_id)
     name_hash = bytearray(name_sha1.digest())
-    if(self.peer_list.contains(hs[48:]) or (hs[48:] == name_hash)):
+    if(self.connected_list.contains(hs[48:]) or (hs[48:] == name_hash)):
       print "Same name as current peer"
       return False
-    self.peer_list.add(hs[48:])
+    self.connected_list.add(hs[48:])
     return True
 
   def make_handshake(self):
@@ -159,19 +162,19 @@ class Handler:
 class RequestHandler(Handler):
   """Makes a request to a single client"""
 
-  def __init__(self, sock):
-    Handler.__init__(self, sock)
+  def __init__(self, sock, connected_peers):
+    Handler.__init__(self, sock, connected_peers)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
 
-  def init_handshake():
+  def init_handshake(self):
     # first assemble string of bytes
-    hs = make_handshake()
+    hs = self.make_handshake()
     # send handshake
     self.send(hs)
     # check recived handshake
     remote_hs = self.recv()
-    if(not remote_hs or not check_handshake(remote_hs)):
+    if(not remote_hs or not self.check_handshake(remote_hs)):
         print "closing socket"
         clientsocket.close()
     else:
@@ -195,11 +198,10 @@ class RequestHandler(Handler):
 class ConnectionHandler(Handler):
   """Handles a single client request"""
 
-  def __init__(self, sock, peer_list):
-    Handler.__init__(self, sock)
+  def __init__(self, sock, connected_list):
+    Handler.__init__(self, sock, connected_list)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
-    self.peer_list = peer_list
 
   def handle(self):
     try:
@@ -254,7 +256,7 @@ def serverloop():
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections
     seederThread    = Seeder(connectionList, connected_list)
-    requesterThread = Requester(potential_peers)
+    requesterThread = Requester(potential_peers, connected_list)
     seederThreadPool.append(seederThread)
     requesterThreadPool.append(requesterThread)
     seederThread.start()
