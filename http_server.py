@@ -47,7 +47,7 @@ class myHandler(BaseHTTPRequestHandler):
   #Handler for the GET requests
   def do_GET(self):
     global b_response, response
-    #self.send_response(200)
+    self.send_response(200)
     self.send_header('Content-type','text/plain')
     self.end_headers()
     print self.path
@@ -72,7 +72,7 @@ class myHandler(BaseHTTPRequestHandler):
     # TODO: Deal with timeout of peers
     
     # Send the html message
-    self.send_response(200)
+    #self.send_response(200, b_response)
     self.wfile.write(b_response)
     return
 

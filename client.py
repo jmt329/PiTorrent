@@ -20,6 +20,7 @@ def tracker_request(ip_addr, port, metainfo_obj):
       }
   req_addr = "http://" + ip_addr + ":" + str(port)
   r = requests.get(req_addr, params=payload)
+  print `r.headers`
   return r.text
 
 # TODO: Take in metainfo file, parse it for relevant info
@@ -43,4 +44,5 @@ if __name__ == '__main__':
   info_hash.update(bencode.bencode(meta_info['info']))
   info_hash = bytearray(info_hash.digest())
   text = tracker_request("0.0.0.0", 8080, None)
-  print text
+  print "done"
+  print `text`
