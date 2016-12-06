@@ -182,14 +182,16 @@ class Handler:
     name_hash = bytearray(name_sha1.digest())
     # update potential_peers from tracker
     valid_peers = PeerList(get_peers_from_tracker())
+
     # # check connected_peers and close connections if no longer a potential peer
     # cp = self.connected_peers.peer_ids()
     # pp = self.potential_peers.peer_ids()
     # for c in cp:
     #   if(c not in pp):
     #     self.connected_peers.remove(c)
-    # check if peer is valid (peer_id is not mine, not already connected and in
-    # list from tracker)
+
+    # check if peer is valid
+    # not already connected to peer, peer_id is not mine, and in list from tracker
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
        (valid_peers.contains_hashed_key('peer_id', hs[48:]))):
       print self.connected_peers.contains(hs[48:])
@@ -197,8 +199,17 @@ class Handler:
       print valid_peer.contains_hashed_key('peer_id', hs[48:])
       print "Same name as current peer"
       return False
+    # valid peer so add to connected list
     self.connected_peers.add(hs[48:])
-    print "In check_handshake: connected_peers = " + str(self.connected_peers.peer_ids())
+    # if we did not know about this peer, add it to potential_peers
+    if(not self.potential_peers.contains_key('peer_id', hs[48:])):
+      for p in valid_peers:
+        id_sha1 = hashlib.sha1()
+        id_sha1.update(p['peer_id'])
+        if(id_sha1.digest() == hs[48:]):
+          self.potential_peers.add(p)
+
+    #print "In check_handshake: connected_peers = " + str(self.connected_peers.peer_ids())
     return True
 
   def make_handshake(self):
