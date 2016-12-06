@@ -275,7 +275,7 @@ class Handler:
       return False
     else:
       # send handshake back
-      print "Sending handshake back"
+      #print "Sending handshake back"
       hs = self.make_handshake()
       self.send(hs)
       return True
@@ -305,7 +305,7 @@ class Handler:
       # Update peer_info 
       piece_index  = (struct.unpack("!i", payload[0:4]))[0]
       peer_info.update(self.pid, piece_index)
-      print "broadcast recv: " + `piece_index`
+      #print "broadcast recv: " + `piece_index`
       # Haves are only sent by requesters to seeders
       # Try again, they're still waiting for a piece?
       return self.recv_pwp()
@@ -313,7 +313,7 @@ class Handler:
       # Bitfield
       bits = bitarray()
       bits.frombytes(payload)
-      print numPieces
+      #print numPieces
       self.recv_bitfield(bits[0:numPieces])
       return 5
     elif(msg_id == 6):
@@ -358,14 +358,14 @@ class Handler:
 
   def send_bitfield(self):
     bf = self.piece_status.get_bitfield()
-    print "send_bitfield: len(bf) = " + str(len(bf))
+    #print "send_bitfield: len(bf) = " + str(len(bf))
     self.send_pwp(5, bf.tobytes())
-    print "Sent bitfield"
+    #print "Sent bitfield"
 
   def recv_bitfield(self, bf):
-    print "recieved bitfield: " + `bf`
+    #print "recieved bitfield: " + `bf`
     peer_info.add(self.pid, bf)
-    print "recived bitfield"
+    #print "recived bitfield"
 
 
 class RequestHandler(Handler):
@@ -381,7 +381,7 @@ class RequestHandler(Handler):
     # first assemble string of bytes
     hs = self.make_handshake()
     # send handshake
-    print "Sending Handshake"
+    #print "Sending Handshake"
     self.send(hs)
     # check recived handshake
     remote_hs = self.recvall(68)
@@ -390,7 +390,7 @@ class RequestHandler(Handler):
         self.sock.close()
         return False
     else:
-        print "Handshake done"
+        #print "Handshake done"
         return True
 
   def req_piece(self, p):
@@ -436,14 +436,12 @@ class RequestHandler(Handler):
       piece_acc += block
     # DO validate piece (maybe)
     piece_hash = hashlib.sha1()
-    print `piece_hash`
     piece_hash.update(piece_acc)
-    print `piece_hash`
     if str(piece_hash.digest()) != info['info']['pieces'][p*20:p*20+20]:
         print "Invalid piece"
         return self.req_piece(p)
     else:
-        print "Validated piece: " + str(p)
+        print "Validated piece: " + str(p) + " from: " + `self.pid`
         # Write it if good, else start over with piece
         self.file_builder.writePiece(piece_acc, p)
         self.piece_status.finished_piece(p)
@@ -457,9 +455,9 @@ class RequestHandler(Handler):
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
             self.send_bitfield()
-            print "sent bitfield in handle"
+            #print "sent bitfield in handle"
             if(self.recv_pwp() == 5):
-              print "pwp 5"
+              #print "pwp 5"
               self.state = "REQ"
             else:
               print "something went wrong in RequestHandler"
@@ -469,7 +467,7 @@ class RequestHandler(Handler):
           broadcast_to_send = peer_info.get_broadcast(self.pid)
           while (broadcast_to_send is not None):
             # Send the broadcast
-            print "broadcast: " + `broadcast_to_send`
+            #print "broadcast: " + `broadcast_to_send`
             msg = bytearray()
             msg.extend(struct.pack("!i", broadcast_to_send))
             self.send_pwp(4, msg)
@@ -483,6 +481,10 @@ class RequestHandler(Handler):
           # check if done and move state
           if(self.piece_status.is_done()):
             self.state = "DONE"
+            print "Successfully downloaded to: " + dest_file_name
+            print "Seeding forever...."
+            self.sock.close()
+            return
 
           # if peer doesn't have any pieces I need: wait on CV for file to finish
           # or sender to get a new piece
@@ -515,7 +517,7 @@ class ConnectionHandler(Handler):
             self.send_bitfield()
             if(self.recv_pwp() == 5):
               self.state = "RESP"
-              print "pwp 5"
+              #print "pwp 5"
             else:
               print "Something went wrong in ConnectionHandler"
         if(self.state == "RESP"):
