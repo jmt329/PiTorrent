@@ -64,6 +64,7 @@ class PeerList:
   def add(self, c):
     with self.lock:
       self.connected.append(c)
+      self.noPeers.notify()
 
   def remove(self, c):
     with self.lock:
@@ -82,6 +83,8 @@ class PeerList:
   def update(self, new_lst):
     with self.lock:
       self.connected = new_lst
+      self.noPeers.notifyall()
+
 
   # connected must be list of dicts
   def contains_key(self, key, e):
@@ -178,28 +181,34 @@ class Handler:
     return self.sock.recv(BUFFER_SIZE)
 
   def recvall(self, size):
-    print "in recvall"
+    #print "in recvall"
     data = ''
     while len(data) < size:
       msg = self.sock.recv(size - len(data))
       if not msg:
-        print "Maybe the socket closed"
-        return None
+        print "Socket closed at other end"
+        self.sock.close()
       data += msg
     return data
 
   def recv_pwp_message(self):
-    print "in recv_pwp_message"
+    #print "in recv_pwp_message"
     msg_len = self.recvall(4)
-    print "msg_len: " + `msg_len`
+    #print "msg_len: " + `msg_len`
+    if msg_len is None:
+        return None
     msg_len = (struct.unpack("!i", msg_len))[0]
     msg = self.recvall(msg_len)
     msg_id = bytearray(msg[0])[0]
+    if msg is None or msg_id is None:
+        return None
     return (msg_id, msg[1:])
 
   # returns True if handshake is valid otherwise false
   # handshake is valid if it is properly formatted and from a valid peer
   def check_handshake(self, hs):
+    if hs is None:
+        return False
     hs = bytearray(hs)
     # check name length
     if(int(hs[0]) != 19):
@@ -273,7 +282,7 @@ class Handler:
 
   def send_pwp(self, messageID, payload):
     # Build peer wire message, expected payload as bytearray
-    print "In send pwp"
+    #print "In send pwp"
     length = 1 + len(payload)
     message = bytearray()
     message.extend(struct.pack("!i", length))
@@ -283,13 +292,23 @@ class Handler:
     self.send(message)
 
   def recv_pwp(self):
-    msg_id, payload = self.recv_pwp_message()
+    response = self.recv_pwp_message() 
+    if response is None:
+        return None
+    msg_id, payload = response
     if(payload == None):
       # connection is closed or something
       print "Payload is None"
+      return None
     if(msg_id == 4):
       # Have
-      return 4
+      # Update peer_info 
+      piece_index  = (struct.unpack("!i", payload[0:4]))[0]
+      peer_info.update(self.pid, piece_index)
+      print "broadcast recv: " + `piece_index`
+      # Haves are only sent by requesters to seeders
+      # Try again, they're still waiting for a piece?
+      return self.recv_pwp()
     elif(msg_id == 5):
       # Bitfield
       bits = bitarray()
@@ -299,8 +318,7 @@ class Handler:
       return 5
     elif(msg_id == 6):
       # Request
-      print "Got request"
-      # TODO: send piece
+      #print "Got request"
       piece_index  = (struct.unpack("!i", payload[0:4]))[0]
       block_offset = (struct.unpack("!i", payload[4:8]))[0]
       block_length = (struct.unpack("!i", payload[8:12]))[0]
@@ -311,29 +329,29 @@ class Handler:
       return (7, self.recv_piece(payload))
 
   def send_piece(self, piece_index, block_offset, block_length):
-    print "Sending piece={}, block_offset={}, block_length={}"\
-      .format(str(piece_index), str(block_offset), str(block_length))
+    #print "Sending piece={}, block_offset={}, block_length={}"\
+    #  .format(str(piece_index), str(block_offset), str(block_length))
     full_piece = self.file_builder.readPiece(piece_index)
     if(full_piece == ""):
       print "full_piece is empty"
     #print "full_piece = " + full_piece
     msg = bytearray()
-    print `piece_index`
-    print `block_offset`
+    #print `piece_index`
+    #print `block_offset`
     msg.extend(struct.pack("!i",  piece_index))
     msg.extend(struct.pack("!i", block_offset))
     msg.extend(full_piece[block_offset:block_offset+block_length])
     self.send_pwp(7, msg)
 
   def recv_piece(self, payload):
-    print len(payload)
+    #print len(payload)
     piece_index = (struct.unpack("!i", payload[0:4]))[0]
     block_offset = (struct.unpack("!i", payload[4:8]))[0]
     block = payload[8:]
-    print `payload[0:4]`
-    print `piece_index`
-    print `payload[4:8]`
-    print `block_offset`
+    #print `payload[0:4]`
+    #print `piece_index`
+    #print `payload[4:8]`
+    #print `block_offset`
     #print "recvied piece={}, block_offset={}".format(str(piece_index), \
     #                                                 str(block_offset))
     return (piece_index, block_offset, block)
@@ -376,34 +394,33 @@ class RequestHandler(Handler):
         return True
 
   def req_piece(self, p):
-    print "in req_piece"
+    #print "in req_piece"
     piece_acc = ""
+    end = 0
+    amount = 0
+    file_size = info['info']['length']
+    last_piece = file_size - (info['info']['piece_length']*(numPieces-1))
+    blocks_in_last_piece = last_piece/fixed_block_size
     if p != numPieces-1:
-      for bo in xrange(0, fixed_block_size*number_of_blocks, fixed_block_size):
-        payload = bytearray()
-        payload.extend(struct.pack("!i", p))
-        payload.extend(struct.pack("!i", bo))
-        payload.extend(struct.pack("!i", fixed_block_size))
-        self.send_pwp(6, payload)
-        # wait for block
-        block = self.recv_pwp()[1][2]
-        piece_acc += block
-        print "sent req for block offset: " + str(bo)
+      end = fixed_block_size*number_of_blocks
+      amount = fixed_block_size
     else:
       # Last piece, may not be full
-      file_size = info['info']['length']
-      last_piece = file_size - (info['info']['piece_length']*(numPieces-1))
-      blocks_in_last_piece = last_piece/fixed_block_size
-      for bo in xrange(0, fixed_block_size*blocks_in_last_piece, fixed_block_size):
-        payload = bytearray()
-        payload.extend(struct.pack("!i", p))
-        payload.extend(struct.pack("!i", bo))
-        payload.extend(struct.pack("!i", fixed_block_size))
-        self.send_pwp(6, payload)
-        # wait for block
-        block = self.recv_pwp()[1][2]
-        piece_acc += block
-        print "sent req for block offset: " + str(bo)
+      amount = fixed_block_size
+      end = fixed_block_size*blocks_in_last_piece
+    for bo in xrange(0, end, amount):
+      payload = bytearray()
+      payload.extend(struct.pack("!i", p))
+      payload.extend(struct.pack("!i", bo))
+      payload.extend(struct.pack("!i", amount))
+      self.send_pwp(6, payload)
+      # wait for block
+      response = self.recv_pwp()
+      if response is None:
+          return None
+      block = response[1][2]
+      piece_acc += block
+    if p == numPieces-1:
       # Clean up last block
       offset_of_last_block = fixed_block_size*(blocks_in_last_piece)
       payload = bytearray()
@@ -412,13 +429,16 @@ class RequestHandler(Handler):
       payload.extend(struct.pack("!i", file_size - offset_of_last_block))
       self.send_pwp(6, payload)
       # wait for block
-      block = self.recv_pwp()[1][2]
+      response = self.recv_pwp()
+      if response is None:
+          return None
+      block = response[1][2]
       piece_acc += block
-      #print "sent req for block offset: " + str(bo)
     # DO validate piece (maybe)
     self.file_builder.writePiece(piece_acc, p)
     self.piece_status.finished_piece(p)
     peer_info.broadcast(p)
+    return p
 
   def handle(self):
     try:
@@ -426,7 +446,6 @@ class RequestHandler(Handler):
         #print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
-
             self.send_bitfield()
             print "sent bitfield in handle"
             if(self.recv_pwp() == 5):
@@ -436,11 +455,21 @@ class RequestHandler(Handler):
               print "something went wrong in RequestHandler"
         elif(self.state == "REQ"):
           # send out have
+          # Go through peer_info
+          broadcast_to_send = peer_info.get_broadcast(self.pid)
+          while (broadcast_to_send is not None):
+            # Send the broadcast
+            print "broadcast: " + `broadcast_to_send`
+            msg = bytearray()
+            msg.extend(struct.pack("!i", broadcast_to_send))
+            self.send_pwp(4, msg)
+            broadcast_to_send = peer_info.get_broadcast(self.pid)
           p = self.piece_status.get_piece()
           if(p == None or peer_info.check_piece(self.pid, p) == 0):
             continue
           else:
-            self.req_piece(p)
+            if self.req_piece(p) is None:
+              return
           # check if done and move state
           if(self.piece_status.is_done()):
             self.state = "DONE"
@@ -471,7 +500,7 @@ class ConnectionHandler(Handler):
       while True:
         if(self.state == "NOT_CONNECTED"):
           if(self.recv_handshake()):
-            sleep(.1)
+            #sleep(.1)
             # sent back handshake
             self.send_bitfield()
             if(self.recv_pwp() == 5):
@@ -480,7 +509,7 @@ class ConnectionHandler(Handler):
             else:
               print "Something went wrong in ConnectionHandler"
         if(self.state == "RESP"):
-          print "In state RESP"
+          #print "In state RESP"
           #print "piece_status: " + str(self.piece_status.pieces)
           # continue recving forever
           self.recv_pwp()
