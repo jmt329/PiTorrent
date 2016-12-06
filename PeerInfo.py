@@ -67,10 +67,10 @@ class PeerInfo:
 
   def check_piece(self, peer_id, piece_idx):
     for p in self.peers:
-      print "p.get_id: " + `p.get_id()`
-      print "peer_id: " + `peer_id`
-      print `p.get_id() == peer_id`
-      print "piece_idx: " + `piece_idx`
-      print 'p.check_piece(p..)' + `p.check_piece(piece_idx)`
+      #print "p.get_id: " + `p.get_id()`
+      #print "peer_id: " + `peer_id`
+      #print `p.get_id() == peer_id`
+      #print "piece_idx: " + `piece_idx`
+      #print 'p.check_piece(p..)' + `p.check_piece(piece_idx)`
       if (p.get_id() == peer_id):
         return p.check_piece(piece_idx)
