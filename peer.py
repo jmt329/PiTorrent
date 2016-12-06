@@ -435,10 +435,20 @@ class RequestHandler(Handler):
       block = response[1][2]
       piece_acc += block
     # DO validate piece (maybe)
-    self.file_builder.writePiece(piece_acc, p)
-    self.piece_status.finished_piece(p)
-    peer_info.broadcast(p)
-    return p
+    piece_hash = hashlib.sha1()
+    print `piece_hash`
+    piece_hash.update(piece_acc)
+    print `piece_hash`
+    if str(piece_hash.digest()) != info['info']['pieces'][p*20:p*20+20]:
+        print "Invalid piece"
+        return self.req_piece(p)
+    else:
+        print "Validated piece: " + str(p)
+        # Write it if good, else start over with piece
+        self.file_builder.writePiece(piece_acc, p)
+        self.piece_status.finished_piece(p)
+        peer_info.broadcast(p)
+        return p
 
   def handle(self):
     try:
