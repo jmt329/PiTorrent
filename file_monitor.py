@@ -17,6 +17,8 @@ class FileBuilder:
         with open(self.file_name, 'wb') as f:
             f.seek(self.file_size-1)
             f.write('\0')
+    else:
+        self.pieces_written = [2]*self.total_pieces
 
   # offset in bytes
   def writePiece(self, piece_buffer, current_piece):
@@ -48,7 +50,8 @@ class FileBuilder:
                     out = f.read(self.file_size - \
                             self.piece_size*(self.total_pieces-1))
             print out
-            return
+            return out
         print "Piece not written yet"
+        return None
 
 
