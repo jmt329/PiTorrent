@@ -476,7 +476,7 @@ class RequestHandler(Handler):
           p = self.piece_status.get_piece()
           if(p == None):
             continue
-          if peer_info.check_piece(self.pid, p) == 0):
+          if (peer_info.check_piece(self.pid, p) == 0):
               self.piece_status.put_back(p)
               continue
           else:
