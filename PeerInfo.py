@@ -33,7 +33,7 @@ class Peer:
     with self.lock:
       self.pieces.finished_piece(piece_idx)
 
-  def check_piece(self):
+  def check_piece(self, piece_idx):
     with self.lock:
       self.pieces.check_piece(piece_idx)
 

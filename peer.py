@@ -168,6 +168,24 @@ class Handler:
   def recv(self):
     return self.sock.recv(BUFFER_SIZE)
 
+  def recvall(self, size):
+    print "in recvall"
+    data = ''
+    while len(data) < size:
+      msg = self.sock.recv(size - len(data))
+      if not msg:
+        return None
+      data += msg
+    return data
+
+  def recv_pwp_message(self):
+    print "in recv_pwp_message"
+    msg_len = self.recvall(4)
+    msg_len = (struct.unpack("!i", msg_len))[0]
+    msg = self.recvall(msg_len)
+    msg_id = bytearray(msg[0])[0]
+    return (msg_id, msg[1:])
+
   # returns True if handshake is valid otherwise false
   # handshake is valid if it is properly formatted and from a valid peer
   def check_handshake(self, hs):
@@ -244,6 +262,7 @@ class Handler:
 
   def send_pwp(self, messageID, payload):
     # Build peer wire message, expected payload as bytearray
+    print "In send pwp"
     length = 1 + len(payload)
     message = bytearray()
     message.extend(struct.pack("!i", length))
@@ -253,7 +272,7 @@ class Handler:
     self.send(message)
 
   def recv_pwp(self):
-    msg_id, payload = self.recv() # TODO: get tuple
+    msg_id, payload = self.recv_pwp_message()
     if(payload == None):
       # connection is closed or something
       pass # TODO fail
@@ -262,7 +281,10 @@ class Handler:
       return 4
     elif(msg_id == 5):
       # Bitfield
-      self.recv_bitfield(payload)
+      bits = bitarray()
+      bits.frombytes(payload)
+      print numPieces
+      self.recv_bitfield(bits[0:numPieces])
       return 5
     elif(msg_id == 6):
       # Request
@@ -280,6 +302,7 @@ class Handler:
     print "Sent bitfield"
 
   def recv_bitfield(self, bf):
+    print "recieved bitfield: " + `bf`
     peer_info.add(self.pid, bf)
     print "recived bitfield"
 
@@ -308,12 +331,14 @@ class RequestHandler(Handler):
         return True
 
   def req_piece(self, p):
+    print "in req_piece"
     for bo in xrange(0, fixed_block_size*number_of_blocks, fixed_block_size):
       payload = bytearray()
       payload.extend(struct.pack("!i", p))
       payload.extend(struct.pack("!i", bo))
       payload.extend(struct.pack("!i", fixed_block_size))
       self.send_pwp(6, payload)
+      print "sent req for block offset: " + str(b0)
 
   def handle(self):
     try:
@@ -330,14 +355,20 @@ class RequestHandler(Handler):
               print "something went wrong in RequestHandler"
         elif(self.state == "REQ"):
           # check if peer has missing piece
+          #print "In state REQ"
+          #print "piece_status: " + str(self.piece_status.pieces)
+          #print "peer_info: " + str(peer_info.peers[0].pieces.pieces)
           for p in xrange(numPieces):
-            if(piece_status.check_piece(p) == 0 and peer_info.check_piece(p) == 2):
+            if(self.piece_status.check_piece(p) == 0 and \
+               peer_info.check_piece(self.pid, p) == 2):
+              print "requesting piece " + str(p)
               self.req_piece(p)
               pass
           # check if file is done
-          if(piece_status.is_done):
-            self.sock.close()
-            self.state = "NOT_CONNECTED"
+          if(self.piece_status.is_done):
+            pass
+            #self.sock.close()
+            #self.state = "NOT_CONNECTED"
 
           # if peer doesn't have any pieces I need: wait on CV for file to finish
           # or sender to get a new piece
@@ -371,6 +402,8 @@ class ConnectionHandler(Handler):
             else:
               print "Something went wrong in ConnectionHandler"
         if(self.state == "RESP"):
+          print "In state RESP"
+          print "piece_status: " + str(self.piece_status.pieces)
           # read from port
           self.recv_pwp()
           # if Have, update
@@ -418,7 +451,9 @@ def serverloop():
   seeding_to      = PeerList()
   requesting_from = PeerList()
   potential_peers = PeerList(get_peers_from_tracker())
+  global numPieces
   numPieces       = len(info['info']['pieces'])/20
+  global number_of_blocks
   number_of_blocks = (info['info']['piece_length']/fixed_block_size) + \
                      (not (not (info['info']['piece_length']%fixed_block_size)))
   piece_status    = PieceStatus(numPieces, seeder)
