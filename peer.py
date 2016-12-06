@@ -42,7 +42,7 @@ class ConnectionQueue:
       self.noConnections.notify()
 
 
-class ConnectedPeers:
+class PeerList:
 
   def __init__(self, lst=[]):
     self.connected = lst
@@ -52,6 +52,10 @@ class ConnectedPeers:
   def add(self, c):
     with self.lock:
       self.connected.append(c)
+
+  def remove(self, c):
+    with self.lock:
+      self.connected.remove(c)
 
   def contains(self, c):
     with self.lock:
@@ -63,46 +67,73 @@ class ConnectedPeers:
         self.noPeers.wait()
       return self.connected.pop()
 
+  def update(self, new_lst):
+    with self.lock:
+      self.connected = new_lst
+
+  # connected must be list of dicts
+  def contains_key(self, key, e):
+    with self.lock:
+      for p in self.connected:
+        if(p[key] == e):
+          return True
+      return False
+
+  # returns a list of peer_ids
+  def peer_ids(self):
+    with self.lock:
+      peer_id = []
+      for p in self.connected:
+        if(type(p) == bytearray):
+          return self.connected
+        peer_id.append(p['peer_id'])
+      return peer_id
 
 class Seeder(Thread):
   """Seeder threads for handling clients requesting pieces"""
 
-  def __init__(self, connectionQueue, connected_list):
+  def __init__(self, connectionQueue, seeding_to, potential_peers):
     Thread.__init__(self)
     self.connections = connectionQueue
-    self.connected_list = connected_list
+    self.seeding_to = seeding_to
+    self.potential_peers = potential_peers
 
   def run(self):
     # Get work to do and do it
     while True:
       # Get a connection
       sock = self.connections.getConnection()
-      ct = ConnectionHandler(sock, self.connected_list)
+      ct = ConnectionHandler(sock, self.seeding_to, self.potential_peers)
       ct.handle()
 
 class Requester(Thread):
   """Requester threads for requesting pieces from other clients"""
 
-  def __init__(self, peer_list, connected_peers):
+  def __init__(self, potential_peers, requesting_from):
     Thread.__init__(self)
-    self.peer_list = peer_list # peers from server
-    self.connected_peers = connected_peers
+    self.potential_peers = potential_peers # peers from server
+    self.requesting_from = requesting_from
 
   def run(self):
     # Get work to do and do it
     while True:
-      peer = self.peer_list.get_peer()
-      if(peer['peer_id'] != my_peer_id):
+      peer = self.potential_peers.get_peer()
+      # make hash of peer_id
+      id_sha1 = hashlib.sha1()
+      id_sha1.update(peer['peer_id'])
+      if(peer['peer_id'] != my_peer_id and \
+         not self.requesting_from.contains(id_sha1.digest())):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((peer['ip'], int(peer['port'])))
-        rh = RequestHandler(sock, self.connected_peers)
+        rh = RequestHandler(sock, self.requesting_from, self.potential_peers)
         rh.handle()
 
 class Handler:
 
-  def __init__(self, sock, connected_list):
+  def __init__(self, sock, connected_peers, potential_peers):
     self.sock = sock
-    self.connected_list = connected_list
+    self.connected_peers = connected_peers
+    self.potential_peers = potential_peers
 
   def send(self, message):
     self.sock.send(message)
@@ -110,27 +141,45 @@ class Handler:
   def recv(self):
     return self.sock.recv(BUFFER_SIZE)
 
+  # returns True if handshake is valid otherwise false
+  # handshake is valid if it is properly formatted and from a valid peer
   def check_handshake(self, hs):
     hs = bytearray(hs)
+    # check name length
     if(int(hs[0]) != 19):
       print "Wrong name length"
       return False
+    # check protcol
     if(hs[1:20] != "BitTorrent protocol"):
       print "Wrong protocol"
       return False
+    # check info hash
     meta_sha1 = hashlib.sha1()
     meta_sha1.update(bencode.bencode(info['info']))
     info_hash = bytearray(meta_sha1.digest())
     if(hs[28:48] != info_hash):
       print "Wrong info hash"
       return False
+    # get peer_id
     name_sha1 = hashlib.sha1()
     name_sha1.update(my_peer_id)
     name_hash = bytearray(name_sha1.digest())
-    if(self.connected_list.contains(hs[48:]) or (hs[48:] == name_hash)):
+    # update potential_peers from tracker
+    self.potential_peers.update(get_peers_from_tracker())
+    # # check connected_peers and close connections if no longer a potential peer
+    # cp = self.connected_peers.peer_ids()
+    # pp = self.potential_peers.peer_ids()
+    # for c in cp:
+    #   if(c not in pp):
+    #     self.connected_peers.remove(c)
+    # check if peer is valid (peer_id is not mine, not already connected and in
+    # list from tracker)
+    if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
+       (self.potential_peers.contains_key('peer_id', hs[48:]))):
       print "Same name as current peer"
       return False
-    self.connected_list.add(hs[48:])
+    self.connected_peers.add(hs[48:])
+    print "In check_handshake: connected_peers = " + str(self.connected_peers.peer_ids())
     return True
 
   def make_handshake(self):
@@ -162,8 +211,8 @@ class Handler:
 class RequestHandler(Handler):
   """Makes a request to a single client"""
 
-  def __init__(self, sock, connected_peers):
-    Handler.__init__(self, sock, connected_peers)
+  def __init__(self, sock, requesting_from, potential_peers):
+    Handler.__init__(self, sock, requesting_from, potential_peers)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
 
@@ -177,16 +226,18 @@ class RequestHandler(Handler):
     if(not remote_hs or not self.check_handshake(remote_hs)):
         print "closing socket"
         clientsocket.close()
+        return False
     else:
         print "Handshake done"
+        return True
 
   def handle(self):
     try:
       while True:
-        print("got connection")
+        print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
-          self.init_handshake()
-          self.sock.close()
+          if(self.init_handshake()):
+            self.state = "REQUESTING"
         return
     except socket.timeout:
       self.sock.close()
@@ -194,19 +245,18 @@ class RequestHandler(Handler):
       self.sock.close()
 
 
-
 class ConnectionHandler(Handler):
   """Handles a single client request"""
 
-  def __init__(self, sock, connected_list):
-    Handler.__init__(self, sock, connected_list)
+  def __init__(self, sock, seeding_to, potential_peers):
+    Handler.__init__(self, sock, seeding_to, potential_peers)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
 
   def handle(self):
     try:
       while True:
-        print("server got connection")
+        print("ConnectionHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           self.recv_handshake()
         self.sock.close()
@@ -216,7 +266,7 @@ class ConnectionHandler(Handler):
     except socket.error:
       self.sock.close()
 
-def get_peers():
+def get_peers_from_tracker():
     info_sha1 = hashlib.sha1()
     info_sha1.update(bencode.bencode(info['info']))
     info_hash = str(bytearray(info_sha1.digest()))
@@ -231,7 +281,7 @@ def get_peers():
     server_url = "http://" + info['announce']
     r = requests.get(server_url, params=payload)
     r_d = bencode.bdecode(r.text)
-    return ConnectedPeers(r_d['peers'])
+    return r_d['peers']
 
 def serverloop():
   """The main server loop"""
@@ -250,13 +300,14 @@ def serverloop():
   requesterThreadPool = []
   # List of waiting connections
   connectionList = ConnectionQueue()
-  connected_list = ConnectedPeers()
+  seeding_to = PeerList()
+  requesting_from = PeerList()
+  potential_peers = PeerList(get_peers_from_tracker())
 
-  potential_peers = get_peers()
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections
-    seederThread    = Seeder(connectionList, connected_list)
-    requesterThread = Requester(potential_peers, connected_list)
+    seederThread    = Seeder(connectionList, seeding_to, potential_peers)
+    requesterThread = Requester(potential_peers, requesting_from)
     seederThreadPool.append(seederThread)
     requesterThreadPool.append(requesterThread)
     seederThread.start()
