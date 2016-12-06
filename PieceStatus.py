@@ -61,7 +61,13 @@ class PieceStatus:
     def is_done(self):
         with self.lock:
             for i in xrange(self.numPieces):
-                print i
                 if(self.pieces[i] == 0):
                     return False
+            print `self.pieces`
             return True
+
+    def put_back(self, p):
+      with self.lock:
+        self.pieces[p] = 0
+
+

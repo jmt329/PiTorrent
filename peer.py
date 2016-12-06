@@ -474,8 +474,11 @@ class RequestHandler(Handler):
             self.send_pwp(4, msg)
             broadcast_to_send = peer_info.get_broadcast(self.pid)
           p = self.piece_status.get_piece()
-          if(p == None or peer_info.check_piece(self.pid, p) == 0):
+          if(p == None):
             continue
+          if peer_info.check_piece(self.pid, p) == 0):
+              self.piece_status.put_back(p)
+              continue
           else:
             if self.req_piece(p) is None:
               return
