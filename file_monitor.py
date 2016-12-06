@@ -23,6 +23,7 @@ class FileBuilder:
   # offset in bytes
   def writePiece(self, piece_buffer, current_piece):
     with self.lock:
+        assert (type(piece_buffer) == str)
         if (current_piece != self.total_pieces - 1):
             if (len(piece_buffer) != self.piece_size):
                 return

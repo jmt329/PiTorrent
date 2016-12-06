@@ -317,15 +317,25 @@ class Handler:
     if(full_piece == ""):
       print "full_piece is empty"
     #print "full_piece = " + full_piece
-    self.send_pwp(7, full_piece[block_offset:block_offset+block_length])
+    msg = bytearray()
+    print `piece_index`
+    print `block_offset`
+    msg.extend(struct.pack("!i",  piece_index))
+    msg.extend(struct.pack("!i", block_offset))
+    msg.extend(full_piece[block_offset:block_offset+block_length])
+    self.send_pwp(7, msg)
 
   def recv_piece(self, payload):
     print len(payload)
     piece_index = (struct.unpack("!i", payload[0:4]))[0]
     block_offset = (struct.unpack("!i", payload[4:8]))[0]
     block = payload[8:]
-    print "recvied piece={}, block_offset={}".format(str(piece_index), \
-                                                     str(block_offset))
+    print `payload[0:4]`
+    print `piece_index`
+    print `payload[4:8]`
+    print `block_offset`
+    #print "recvied piece={}, block_offset={}".format(str(piece_index), \
+    #                                                 str(block_offset))
     return (piece_index, block_offset, block)
 
   def send_bitfield(self):
@@ -368,17 +378,44 @@ class RequestHandler(Handler):
   def req_piece(self, p):
     print "in req_piece"
     piece_acc = ""
-    for bo in xrange(0, fixed_block_size*number_of_blocks, fixed_block_size):
+    if p != numPieces-1:
+      for bo in xrange(0, fixed_block_size*number_of_blocks, fixed_block_size):
+        payload = bytearray()
+        payload.extend(struct.pack("!i", p))
+        payload.extend(struct.pack("!i", bo))
+        payload.extend(struct.pack("!i", fixed_block_size))
+        self.send_pwp(6, payload)
+        # wait for block
+        block = self.recv_pwp()[1][2]
+        piece_acc += block
+        print "sent req for block offset: " + str(bo)
+    else:
+      # Last piece, may not be full
+      file_size = info['info']['length']
+      last_piece = file_size - (info['info']['piece_length']*(numPieces-1))
+      blocks_in_last_piece = last_piece/fixed_block_size
+      for bo in xrange(0, fixed_block_size*blocks_in_last_piece, fixed_block_size):
+        payload = bytearray()
+        payload.extend(struct.pack("!i", p))
+        payload.extend(struct.pack("!i", bo))
+        payload.extend(struct.pack("!i", fixed_block_size))
+        self.send_pwp(6, payload)
+        # wait for block
+        block = self.recv_pwp()[1][2]
+        piece_acc += block
+        print "sent req for block offset: " + str(bo)
+      # Clean up last block
+      offset_of_last_block = fixed_block_size*(blocks_in_last_piece)
       payload = bytearray()
       payload.extend(struct.pack("!i", p))
-      payload.extend(struct.pack("!i", bo))
-      payload.extend(struct.pack("!i", fixed_block_size))
+      payload.extend(struct.pack("!i", offset_of_last_block))
+      payload.extend(struct.pack("!i", file_size - offset_of_last_block))
       self.send_pwp(6, payload)
       # wait for block
       block = self.recv_pwp()[1][2]
       piece_acc += block
-      print "sent req for block offset: " + str(bo)
-    # TODO validate piece (maybe)
+      #print "sent req for block offset: " + str(bo)
+    # DO validate piece (maybe)
     self.file_builder.writePiece(piece_acc, p)
     self.piece_status.finished_piece(p)
     peer_info.broadcast(p)
