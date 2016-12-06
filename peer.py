@@ -8,15 +8,17 @@ import requests
 import bencode
 import sys
 import struct
-from time import sleep
-from PieceStatus import PieceStatus
-from PeerInfo    import PeerInfo
-from bitarray    import bitarray
-from threading   import Lock, Condition, Thread
+from file_monitor import FileBuilder
+from time         import sleep
+from PieceStatus  import PieceStatus
+from PeerInfo     import PeerInfo
+from bitarray     import bitarray
+from threading    import Lock, Condition, Thread
 
 my_host = "0.0.0.0"
 my_port = 8080
 BUFFER_SIZE = 4096
+dest_file_name = ""
 info_filename = ""
 info = {}
 my_peer_id = ""
@@ -114,12 +116,14 @@ class PeerList:
 class Seeder(Thread):
   """Seeder threads for handling clients requesting pieces"""
 
-  def __init__(self, connectionQueue, seeding_to, potential_peers, piece_status):
+  def __init__(self, connectionQueue, seeding_to, potential_peers, \
+               piece_status, file_builder):
     Thread.__init__(self)
     self.connections     = connectionQueue
     self.seeding_to      = seeding_to
     self.potential_peers = potential_peers
     self.piece_status    = piece_status
+    self.file_builder    = file_builder
 
   def run(self):
     # Get work to do and do it
@@ -127,17 +131,19 @@ class Seeder(Thread):
       # Get a connection
       sock = self.connections.getConnection()
       ct = ConnectionHandler(sock, self.seeding_to, self.potential_peers, \
-                             self.piece_status)
+                             self.piece_status, self.file_builder)
       ct.handle()
 
 class Requester(Thread):
   """Requester threads for requesting pieces from other clients"""
 
-  def __init__(self, potential_peers, requesting_from, piece_status):
+  def __init__(self, potential_peers, requesting_from, piece_status, \
+               file_builder):
     Thread.__init__(self)
     self.potential_peers = potential_peers # peers from server
     self.requesting_from = requesting_from
     self.piece_status    = piece_status
+    self.file_builder    = file_builder
 
   def run(self):
     # Get work to do and do it
@@ -151,17 +157,19 @@ class Requester(Thread):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((peer['ip'], int(peer['port'])))
         rh = RequestHandler(sock, self.requesting_from, self.potential_peers, \
-                            self.piece_status)
+                            self.piece_status, self.file_builder)
         rh.handle()
 
 class Handler:
 
-  def __init__(self, sock, connected_peers, potential_peers, piece_status):
+  def __init__(self, sock, connected_peers, potential_peers, piece_status, \
+               file_builder):
     self.sock = sock
     self.connected_peers = connected_peers
     self.potential_peers = potential_peers
     self.piece_status    = piece_status
     self.pid             = '' # peer id of successful connection
+    self.file_builder    = file_builder
 
   def send(self, message):
     self.sock.sendall(message)
@@ -294,7 +302,13 @@ class Handler:
       return 6
     elif(msg_id == 7):
       # Piece
-      return 7
+      return (7, self.recv_piece(payload))
+
+  def recv_piece(self, payload):
+    piece_index = (struct.unpack("!i", payload[0:4]))[0]
+    block_offset = (struct.unpack("!i", payload[4:8]))[0]
+    block = payload[8:]
+    return (piece_index, block_offset, block)
 
   def send_bitfield(self):
     bf = self.piece_status.get_bitfield()
@@ -311,8 +325,10 @@ class Handler:
 class RequestHandler(Handler):
   """Makes a request to a single client"""
 
-  def __init__(self, sock, requesting_from, potential_peers, piece_status):
-    Handler.__init__(self, sock, requesting_from, potential_peers, piece_status)
+  def __init__(self, sock, requesting_from, potential_peers, piece_status, \
+               file_builder):
+    Handler.__init__(self, sock, requesting_from, potential_peers, piece_status, \
+                     file_builder)
     self.state = "NOT_CONNECTED"
 
   def init_handshake(self):
@@ -333,13 +349,21 @@ class RequestHandler(Handler):
 
   def req_piece(self, p):
     print "in req_piece"
+    piece_acc = ""
     for bo in xrange(0, fixed_block_size*number_of_blocks, fixed_block_size):
       payload = bytearray()
       payload.extend(struct.pack("!i", p))
       payload.extend(struct.pack("!i", bo))
       payload.extend(struct.pack("!i", fixed_block_size))
       self.send_pwp(6, payload)
+      # wait for block
+      block[1][2] = self.recv_pwp()
+      piece_acc += block
       print "sent req for block offset: " + str(bo)
+    # TODO validate piece (maybe)
+    self.file_builder.writePiece(piece_acc, p)
+    self.piece_status.finished_piece(p)
+    self.peer_info.broadcast(p)
 
   def handle(self):
     try:
@@ -356,23 +380,15 @@ class RequestHandler(Handler):
             else:
               print "something went wrong in RequestHandler"
         elif(self.state == "REQ"):
-          # check if peer has missing piece
-          #print "In state REQ"
-          #print "piece_status: " + str(self.piece_status.pieces)
-          #print "peer_info: " + str(peer_info.peers[0].pieces.pieces)
-          for p in xrange(numPieces):
-            print 'me: ' + `self.piece_status.check_piece(p)`
-            print 'other: ' + `peer_info.check_piece(self.pid, p)`
-            if(self.piece_status.check_piece(p) == 0 and \
-               peer_info.check_piece(self.pid, p) == 2):
-              print "requesting piece " + str(p)
-              self.req_piece(p)
-              pass
-          # check if file is done
-          if(self.piece_status.is_done):
-            pass
-            #self.sock.close()
-            #self.state = "NOT_CONNECTED"
+          # send out have
+          p = self.piece_status.get_piece()
+          if(p == None or peer_info.check_piece(self.pid, p) == 0):
+            continue
+          else:
+            self.req_piece(p)
+          # check if done and move state
+          if(self.piece_status.is_done()):
+            self.state = "DONE"
 
           # if peer doesn't have any pieces I need: wait on CV for file to finish
           # or sender to get a new piece
@@ -388,8 +404,10 @@ class RequestHandler(Handler):
 class ConnectionHandler(Handler):
   """Handles a single client request"""
 
-  def __init__(self, sock, seeding_to, potential_peers, piece_status):
-    Handler.__init__(self, sock, seeding_to, potential_peers, piece_status)
+  def __init__(self, sock, seeding_to, potential_peers, piece_status, \
+               file_builder):
+    Handler.__init__(self, sock, seeding_to, potential_peers, piece_status, \
+                     file_builder)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
 
@@ -464,11 +482,15 @@ def serverloop():
   piece_status    = PieceStatus(numPieces, seeder)
   global peer_info
   peer_info       = PeerInfo(numPieces)
+  file_builder = FileBuilder(dest_file_name, info['info']['length'], \
+                             info['info']['piece_length'])
 
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections
-    seederThread    = Seeder(connectionList, seeding_to, potential_peers, piece_status)
-    requesterThread = Requester(potential_peers, requesting_from, piece_status)
+    seederThread    = Seeder(connectionList, seeding_to, potential_peers, \
+                             piece_status, file_builder)
+    requesterThread = Requester(potential_peers, requesting_from, \
+                                piece_status, file_builder)
     seederThreadPool.append(seederThread)
     requesterThreadPool.append(requesterThread)
     seederThread.start()
@@ -484,9 +506,9 @@ def serverloop():
 
 # DO NOT CHANGE BELOW THIS LINE
 
-opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:i:s:', \
+opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:i:s:n:', \
                            ['host=', 'port=', 'metainfo=', \
-                            'peer_id=', 'seeder='])
+                            'peer_id=', 'seeder=', 'name='])
 
 for k, v in opts:
     if k in ('-h', '--host'):
@@ -501,6 +523,8 @@ for k, v in opts:
       my_peer_id = v
     if k in ('-s', '--seeder'):
       seeder = v
+    if k in ('-n', '--name'):
+      dest_file_name = v
 
 print("Server coming up on %s:%i" % (my_host, my_port))
 serverloop()
