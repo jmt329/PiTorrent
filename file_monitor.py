@@ -5,7 +5,7 @@ import math
 class FileBuilder:
   """Monitor to handle file operations concurrently"""
 
-  def __init__(self, file_name, file_size, piece_size):
+  def __init__(self, file_name, file_size, piece_size, new_file=True):
     self.lock = Lock()
     self.bytes_written = 0
     self.file_size = file_size
@@ -13,9 +13,10 @@ class FileBuilder:
     self.total_pieces = int(math.ceil(float(file_size) / float(piece_size)))
     self.pieces_written = [0]*self.total_pieces
     self.piece_size = piece_size
-    with open(self.file_name, 'wb') as f:
-        f.seek(self.file_size-1)
-        f.write('\0')
+    if new_file:
+        with open(self.file_name, 'wb') as f:
+            f.seek(self.file_size-1)
+            f.write('\0')
 
   # offset in bytes
   def writePiece(self, piece_buffer, current_piece):
