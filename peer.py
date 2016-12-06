@@ -7,8 +7,9 @@ import hashlib
 import requests
 import bencode
 import sys
-from bitarray import bitarray
-from threading import Lock, Condition, Thread
+from PieceStatus import PieceStatus
+from bitarray    import bitarray
+from threading   import Lock, Condition, Thread
 
 my_host = "0.0.0.0"
 my_port = 8080
@@ -16,6 +17,7 @@ BUFFER_SIZE = 1024
 info_filename = ""
 info = {}
 my_peer_id = ""
+seeder = False
 # Instead, you can pass command-line arguments
 # -h/--host [IP] -p/--port [PORT]
 # to put your server on a different IP/port.
@@ -105,27 +107,30 @@ class PeerList:
 class Seeder(Thread):
   """Seeder threads for handling clients requesting pieces"""
 
-  def __init__(self, connectionQueue, seeding_to, potential_peers):
+  def __init__(self, connectionQueue, seeding_to, potential_peers, piece_status):
     Thread.__init__(self)
-    self.connections = connectionQueue
-    self.seeding_to = seeding_to
+    self.connections     = connectionQueue
+    self.seeding_to      = seeding_to
     self.potential_peers = potential_peers
+    self.piece_status    = piece_status
 
   def run(self):
     # Get work to do and do it
     while True:
       # Get a connection
       sock = self.connections.getConnection()
-      ct = ConnectionHandler(sock, self.seeding_to, self.potential_peers)
+      ct = ConnectionHandler(sock, self.seeding_to, self.potential_peers, \
+                             self.piece_status)
       ct.handle()
 
 class Requester(Thread):
   """Requester threads for requesting pieces from other clients"""
 
-  def __init__(self, potential_peers, requesting_from):
+  def __init__(self, potential_peers, requesting_from, piece_status):
     Thread.__init__(self)
     self.potential_peers = potential_peers # peers from server
     self.requesting_from = requesting_from
+    self.piece_status    = piece_status
 
   def run(self):
     # Get work to do and do it
@@ -138,15 +143,17 @@ class Requester(Thread):
          not self.requesting_from.contains(id_sha1.digest())):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((peer['ip'], int(peer['port'])))
-        rh = RequestHandler(sock, self.requesting_from, self.potential_peers)
+        rh = RequestHandler(sock, self.requesting_from, self.potential_peers, \
+                            self.piece_status)
         rh.handle()
 
 class Handler:
 
-  def __init__(self, sock, connected_peers, potential_peers):
+  def __init__(self, sock, connected_peers, potential_peers, piece_status):
     self.sock = sock
     self.connected_peers = connected_peers
     self.potential_peers = potential_peers
+    self.piece_status    = piece_status
     # TODO: added data structures for state of each piece (empty, downloading, finished)
 
   def send(self, message):
@@ -237,8 +244,8 @@ class Handler:
 class RequestHandler(Handler):
   """Makes a request to a single client"""
 
-  def __init__(self, sock, requesting_from, potential_peers):
-    Handler.__init__(self, sock, requesting_from, potential_peers)
+  def __init__(self, sock, requesting_from, potential_peers, piece_status):
+    Handler.__init__(self, sock, requesting_from, potential_peers, piece_status)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
 
@@ -302,8 +309,8 @@ class RequestHandler(Handler):
 class ConnectionHandler(Handler):
   """Handles a single client request"""
 
-  def __init__(self, sock, seeding_to, potential_peers):
-    Handler.__init__(self, sock, seeding_to, potential_peers)
+  def __init__(self, sock, seeding_to, potential_peers, piece_status):
+    Handler.__init__(self, sock, seeding_to, potential_peers, piece_status)
     self.state = "NOT_CONNECTED"
     self.timeout = 10
 
@@ -353,15 +360,17 @@ def serverloop():
   seederThreadPool    = []
   requesterThreadPool = []
   # List of waiting connections
-  connectionList = ConnectionQueue()
-  seeding_to = PeerList()
+  connectionList  = ConnectionQueue()
+  seeding_to      = PeerList()
   requesting_from = PeerList()
   potential_peers = PeerList(get_peers_from_tracker())
+  numPieces       = len(info['info']['pieces'])/20
+  piece_status    = PieceStatus(numPieces, seeder)
 
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections
-    seederThread    = Seeder(connectionList, seeding_to, potential_peers)
-    requesterThread = Requester(potential_peers, requesting_from)
+    seederThread    = Seeder(connectionList, seeding_to, potential_peers, piece_status)
+    requesterThread = Requester(potential_peers, requesting_from, piece_status)
     seederThreadPool.append(seederThread)
     requesterThreadPool.append(requesterThread)
     seederThread.start()
@@ -377,8 +386,9 @@ def serverloop():
 
 # DO NOT CHANGE BELOW THIS LINE
 
-opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:i:', \
-                           ['host=', 'port=', 'metainfo=', 'peer_id='])
+opts, args = getopt.getopt(sys.argv[1:], 'h:p:m:i:s:', \
+                           ['host=', 'port=', 'metainfo=', \
+                            'peer_id=', 'seeder='])
 
 for k, v in opts:
     if k in ('-h', '--host'):
@@ -391,7 +401,8 @@ for k, v in opts:
         info = bencode.bdecode(f.read())
     if k in ('-i', '--peer_id'):
       my_peer_id = v
-
+    if k in ('-s', '--seeder'):
+      seeder = v
 
 print("Server coming up on %s:%i" % (my_host, my_port))
 serverloop()
