@@ -101,7 +101,11 @@ class PeerList:
       for p in self.connected:
         key_sha1 = hashlib.sha1()
         key_sha1.update(p[key])
-        if(key_sha1.digest == e):
+        print "==========Contains hashed key============="
+        print `key_sha1.digest()`
+        print `e`
+        print "=========================================="
+        if(key_sha1.digest() == e):
           return True
       return False
 
