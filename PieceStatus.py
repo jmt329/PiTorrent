@@ -42,11 +42,20 @@ class PieceStatus:
 
     # updates pieces with bitfield
     def update(self, bitfield):
-        for i in xrange(len(bitfield)):
-            if(bitfield[i] == 0):
-                self.pieces[i] = 0
-            else:
-                self.pieces[i] = 2
+        with self.lock:
+            for i in xrange(len(bitfield)):
+                if(bitfield[i] == 0):
+                    self.pieces[i] = 0
+                else:
+                    self.pieces[i] = 2
 
     def check_piece(self, piece_idx):
-        return self.pieces[piece_idx] == 2
+        with self.lock:
+            return self.pieces[piece_idx]
+
+    def is_done(self):
+        with self.lock:
+            for i in xrange(len(bitfield)):
+                if(bitfield[i] == 0):
+                    return False
+            return True

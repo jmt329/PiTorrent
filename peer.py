@@ -21,6 +21,9 @@ info = {}
 my_peer_id = ""
 seeder = False
 peer_info = None
+numPieces = 0
+fixed_block_size = 4000
+number_of_blocks = 0
 # Instead, you can pass command-line arguments
 # -h/--host [IP] -p/--port [PORT]
 # to put your server on a different IP/port.
@@ -158,7 +161,6 @@ class Handler:
     self.potential_peers = potential_peers
     self.piece_status    = piece_status
     self.pid             = '' # peer id of successful connection
-    # TODO: added data structures for state of each piece (empty, downloading, finished)
 
   def send(self, message):
     self.sock.sendall(message)
@@ -251,26 +253,21 @@ class Handler:
     self.send(message)
 
   def recv_pwp(self):
-    print "in recv_pwp"
-    payload = self.recv()
-    if(len(payload) == 0):
-      # connection is closed
-      pass
-    print "len of payload is " + str(len(payload))
-    msg = bytearray(payload)
-    print "len of unpack arg" + str(len(str(msg[0:4])))
-    msg_len = struct.unpack("!i", str(msg[0:4]))[0]
-    assert(len(msg[4:]) == msg_len)
-    msg_id = msg[4]
+    msg_id, payload = self.recv() # TODO: get tuple
+    if(payload == None):
+      # connection is closed or something
+      pass # TODO fail
     if(msg_id == 4):
       # Have
       return 4
     elif(msg_id == 5):
       # Bitfield
-      self.recv_bitfield(msg[5:])
+      self.recv_bitfield(payload)
       return 5
     elif(msg_id == 6):
       # Request
+      print "Got request"
+      # TODO: send piece
       return 6
     elif(msg_id == 7):
       # Piece
@@ -310,6 +307,14 @@ class RequestHandler(Handler):
         print "Handshake done"
         return True
 
+  def req_piece(self, p):
+    for bo in xrange(0, fixed_block_size*number_of_blocks, fixed_block_size):
+      payload = bytearray()
+      payload.extend(struct.pack("!i", p))
+      payload.extend(struct.pack("!i", bo))
+      payload.extend(struct.pack("!i", fixed_block_size))
+      self.send_pwp(6, payload)
+
   def handle(self):
     try:
       while True:
@@ -324,7 +329,16 @@ class RequestHandler(Handler):
             else:
               print "something went wrong in RequestHandler"
         elif(self.state == "REQ"):
-          # TODO: while I don't have all pieces peer does: request piece
+          # check if peer has missing piece
+          for p in xrange(numPieces):
+            if(piece_status.check_piece(p) == 0 and peer_info.check_piece(p) == 2):
+              self.req_piece(p)
+              pass
+          # check if file is done
+          if(piece_status.is_done):
+            self.sock.close()
+            self.state = "NOT_CONNECTED"
+
           # if peer doesn't have any pieces I need: wait on CV for file to finish
           # or sender to get a new piece
           # once full piece is downloaded and verified, broadcast HAVE
@@ -358,6 +372,7 @@ class ConnectionHandler(Handler):
               print "Something went wrong in ConnectionHandler"
         if(self.state == "RESP"):
           # read from port
+          self.recv_pwp()
           # if Have, update
           # if data, save
           pass
@@ -404,6 +419,8 @@ def serverloop():
   requesting_from = PeerList()
   potential_peers = PeerList(get_peers_from_tracker())
   numPieces       = len(info['info']['pieces'])/20
+  number_of_blocks = (info['info']['piece_length']/fixed_block_size) + \
+                     (not (not (info['info']['piece_length']%fixed_block_size)))
   piece_status    = PieceStatus(numPieces, seeder)
   global peer_info
   peer_info       = PeerInfo(numPieces)
