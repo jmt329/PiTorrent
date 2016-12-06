@@ -437,7 +437,8 @@ class RequestHandler(Handler):
     # DO validate piece (maybe)
     piece_hash = hashlib.sha1()
     piece_hash.update(piece_acc)
-    if str(piece_hash.digest()) != info['info']['pieces'][p*20:p*20+20]:
+    # More of that stupid hacky fix
+    if str(piece_hash.digest()).replace('&','S') != info['info']['pieces'][p*20:p*20+20]:
         print "Invalid piece"
         return self.req_piece(p)
     else:
@@ -570,6 +571,7 @@ def serverloop():
   potential_peers = PeerList(get_peers_from_tracker())
   global numPieces
   numPieces       = len(info['info']['pieces'])/20
+  print "NumPieces:" + str(numPieces)
   global number_of_blocks
   number_of_blocks = (info['info']['piece_length']/fixed_block_size) + \
                      (not (not (info['info']['piece_length']%fixed_block_size)))
