@@ -238,7 +238,7 @@ class Handler:
     # check if peer is valid
     # not already connected to peer, peer_id is not mine, and in list from tracker
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
-       (not valid_peers.contains_hashed_key('peer_id', hs[48:]))):
+       (not valid_peers.contains_key('peer_id', hs[48:]))):
       print "Same name as current peer"
       return False
     # save pid and valid peer so add to connected list
