@@ -32,8 +32,8 @@ class PieceStatus:
     # returns the bitarray representing the bitfield
     def get_bitfield(self):
         with self.lock:
-            bf = bitarray(len(pieces))
-            for i in xrange(len(pieces)):
+            bf = bitarray(len(self.pieces))
+            for i in xrange(len(self.pieces)):
                 if(self.pieces[i] == 2):
                     bf[i] = 1
                 else:

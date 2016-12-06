@@ -253,7 +253,7 @@ class Handler:
   def recv_pwp(self):
     payload = self.recv()
     msg = bytearray(payload)
-    meg_len = struct.unpack("!i", str(msg[0:4]))[0]
+    msg_len = struct.unpack("!i", str(msg[0:4]))[0]
     assert(len(msg[4:]) == msg_len)
     msg_id = msg[4]
     if(msg_id == 4):
@@ -271,7 +271,7 @@ class Handler:
       return 7
 
   def send_bitfield(self):
-    bf = self.piece_status.get_bifield()
+    bf = self.piece_status.get_bitfield()
     self.send_pwp(5, bf.tobytes())
 
   def recv_bitfield(self, bf):
@@ -398,6 +398,7 @@ def serverloop():
   potential_peers = PeerList(get_peers_from_tracker())
   numPieces       = len(info['info']['pieces'])/20
   piece_status    = PieceStatus(numPieces, seeder)
+  global peer_info
   peer_info       = PeerInfo(numPieces)
 
   for i in xrange(8):
