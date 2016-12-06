@@ -6,6 +6,7 @@ class PieceStatus:
     requested """
 
     def __init__(self, numPieces, haveFile=False):
+        self.numPieces = numPieces
         self.pieces = [0] * numPieces # initally nothing is downloaded
         if(haveFile):
             # peer is coming in as seeder
@@ -59,7 +60,7 @@ class PieceStatus:
 
     def is_done(self):
         with self.lock:
-            for i in xrange(len(bitfield)):
-                if(bitfield[i] == 0):
+            for i in xrange(self.numPieces):
+                if(self.pieces[i] == 0):
                     return False
             return True

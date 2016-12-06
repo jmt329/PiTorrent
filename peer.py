@@ -183,6 +183,7 @@ class Handler:
     while len(data) < size:
       msg = self.sock.recv(size - len(data))
       if not msg:
+        print "Maybe the socket closed"
         return None
       data += msg
     return data
@@ -190,6 +191,7 @@ class Handler:
   def recv_pwp_message(self):
     print "in recv_pwp_message"
     msg_len = self.recvall(4)
+    print "msg_len: " + `msg_len`
     msg_len = (struct.unpack("!i", msg_len))[0]
     msg = self.recvall(msg_len)
     msg_id = bytearray(msg[0])[0]
@@ -284,7 +286,7 @@ class Handler:
     msg_id, payload = self.recv_pwp_message()
     if(payload == None):
       # connection is closed or something
-      pass # TODO fail
+      print "Payload is None"
     if(msg_id == 4):
       # Have
       return 4
@@ -299,15 +301,31 @@ class Handler:
       # Request
       print "Got request"
       # TODO: send piece
+      piece_index  = (struct.unpack("!i", payload[0:4]))[0]
+      block_offset = (struct.unpack("!i", payload[4:8]))[0]
+      block_length = (struct.unpack("!i", payload[8:12]))[0]
+      self.send_piece(piece_index, block_offset, block_length)
       return 6
     elif(msg_id == 7):
       # Piece
       return (7, self.recv_piece(payload))
 
+  def send_piece(self, piece_index, block_offset, block_length):
+    print "Sending piece={}, block_offset={}, block_length={}"\
+      .format(str(piece_index), str(block_offset), str(block_length))
+    full_piece = self.file_builder.readPiece(piece_index)
+    if(full_piece == ""):
+      print "full_piece is empty"
+    #print "full_piece = " + full_piece
+    self.send_pwp(7, full_piece[block_offset:block_offset+block_length])
+
   def recv_piece(self, payload):
+    print len(payload)
     piece_index = (struct.unpack("!i", payload[0:4]))[0]
     block_offset = (struct.unpack("!i", payload[4:8]))[0]
     block = payload[8:]
+    print "recvied piece={}, block_offset={}".format(str(piece_index), \
+                                                     str(block_offset))
     return (piece_index, block_offset, block)
 
   def send_bitfield(self):
@@ -357,13 +375,13 @@ class RequestHandler(Handler):
       payload.extend(struct.pack("!i", fixed_block_size))
       self.send_pwp(6, payload)
       # wait for block
-      block[1][2] = self.recv_pwp()
+      block = self.recv_pwp()[1][2]
       piece_acc += block
       print "sent req for block offset: " + str(bo)
     # TODO validate piece (maybe)
     self.file_builder.writePiece(piece_acc, p)
     self.piece_status.finished_piece(p)
-    self.peer_info.broadcast(p)
+    peer_info.broadcast(p)
 
   def handle(self):
     try:
@@ -426,12 +444,9 @@ class ConnectionHandler(Handler):
               print "Something went wrong in ConnectionHandler"
         if(self.state == "RESP"):
           print "In state RESP"
-          print "piece_status: " + str(self.piece_status.pieces)
-          # read from port
+          #print "piece_status: " + str(self.piece_status.pieces)
+          # continue recving forever
           self.recv_pwp()
-          # if Have, update
-          # if data, save
-          pass
     except socket.timeout:
       self.sock.close()
     except socket.error:
@@ -483,7 +498,7 @@ def serverloop():
   global peer_info
   peer_info       = PeerInfo(numPieces)
   file_builder = FileBuilder(dest_file_name, info['info']['length'], \
-                             info['info']['piece_length'])
+                             info['info']['piece_length'], not seeder)
 
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections

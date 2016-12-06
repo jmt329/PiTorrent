@@ -49,9 +49,6 @@ class FileBuilder:
                 else:
                     out = f.read(self.file_size - \
                             self.piece_size*(self.total_pieces-1))
-            print out
             return out
         print "Piece not written yet"
         return None
-
-
