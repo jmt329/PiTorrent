@@ -100,6 +100,7 @@ class PeerList:
         peer_id.append(p['peer_id'])
       return peer_id
 
+
 class Seeder(Thread):
   """Seeder threads for handling clients requesting pieces"""
 
@@ -145,6 +146,7 @@ class Handler:
     self.sock = sock
     self.connected_peers = connected_peers
     self.potential_peers = potential_peers
+    # TODO: added data structures for state of each piece (empty, downloading, finished)
 
   def send(self, message):
     self.sock.send(message)
@@ -255,13 +257,31 @@ class RequestHandler(Handler):
         print "Handshake done"
         return True
 
+  def send_pwp(self, messageID, payload):
+    pass
+
+  def send_bitfield(self):
+    pass
+
   def handle(self):
     try:
       while True:
         print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
-            self.state = "REQUESTING"
+            # TODO: send_bitfield()
+            self.state = "WAIT"
+        elif(self.state == "WAIT"):
+          # TODO: bitfield = self.recv()
+          # move into state REQ
+          pass
+        elif(self.state == "REQ"):
+          # TODO: while I don't have all pieces peer does: request piece
+          # if peer doesn't have any pieces I need: wait on CV for file to finish
+          # or sender to get a new piece
+          # once full piece is downloaded and verified, send HAVE
+          # if file finishes: close connection, move to state NOT_CONNECTED
+          pass
         return
     except socket.timeout:
       self.sock.close()
