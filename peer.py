@@ -15,7 +15,7 @@ from threading   import Lock, Condition, Thread
 
 my_host = "0.0.0.0"
 my_port = 8080
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 4096
 info_filename = ""
 info = {}
 my_peer_id = ""
@@ -251,8 +251,14 @@ class Handler:
     self.send(message)
 
   def recv_pwp(self):
+    print "in recv_pwp"
     payload = self.recv()
+    while(len(payload) == 0):
+      print "spinning"
+      payload = self.recv()
+    print "len of payload is " + str(len(payload))
     msg = bytearray(payload)
+    print "len of unpack arg" + str(len(str(msg[0:4])))
     msg_len = struct.unpack("!i", str(msg[0:4]))[0]
     assert(len(msg[4:]) == msg_len)
     msg_id = msg[4]
@@ -273,10 +279,11 @@ class Handler:
   def send_bitfield(self):
     bf = self.piece_status.get_bitfield()
     self.send_pwp(5, bf.tobytes())
+    print "Sent bitfield"
 
   def recv_bitfield(self, bf):
     peer_info.add(self.pid, bf)
-    print "recived bitfield: " + str(bf)
+    print "recived bitfield"
 
 
 class RequestHandler(Handler):
@@ -305,11 +312,13 @@ class RequestHandler(Handler):
   def handle(self):
     try:
       while True:
-        print("RequestHandler: got connection")
+        #print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
             self.send_bitfield()
+            print "sent bitfield in handle"
             if(self.recv_pwp() == 5):
+              print "pwp 5"
               self.state = "REQ"
             else:
               print "something went wrong in RequestHandler"
@@ -320,7 +329,6 @@ class RequestHandler(Handler):
           # once full piece is downloaded and verified, broadcast HAVE
           # if file finishes: close connection, move to state NOT_CONNECTED
           pass
-        return
     except socket.timeout:
       self.sock.close()
     except socket.error:
@@ -338,13 +346,13 @@ class ConnectionHandler(Handler):
   def handle(self):
     try:
       while True:
-        print("ConnectionHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.recv_handshake()):
             # sent back handshake
             self.send_bitfield()
             if(self.recv_pwp() == 5):
               self.state = "RESP"
+              print "pwp 5"
             else:
               print "Something went wrong in ConnectionHandler"
         if(self.state == "RESP"):
@@ -352,8 +360,6 @@ class ConnectionHandler(Handler):
           # if Have, update
           # if data, save
           pass
-        self.sock.close()
-        return
     except socket.timeout:
       self.sock.close()
     except socket.error:
