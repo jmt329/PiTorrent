@@ -36,6 +36,10 @@ class PeerInfo:
           with self.lock:
               self.pieces.finished_piece(piece_idx)
 
+      def check_piece(self):
+          with self.lock:
+              self.pieces.check_piece(piece_idx)
+
   def __init__(self, num_pieces):
     self.lock = Lock()
     self.peers = []
@@ -61,6 +65,10 @@ class PeerInfo:
           if (p.get_id() == peer_id):
             return p.get_broadcast()          
 
+  def check_piece(self, peer_id, piece_idx):
+      for p in self.peers:
+          if (p.get_id() == peer_id):
+              return p.check_piece(piece_idx)
 
 
 
