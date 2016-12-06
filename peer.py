@@ -240,7 +240,6 @@ class Handler:
       return False
     # save pid and valid peer so add to connected list
     self.pid = hs[48:]
-    self.connected_peers.add(hs[48:])
     # if we did not know about this peer, add it to potential_peers
     if(not self.potential_peers.contains_key('peer_id', hs[48:])):
       for p in vp:
@@ -292,7 +291,7 @@ class Handler:
     self.send(message)
 
   def recv_pwp(self):
-    response = self.recv_pwp_message() 
+    response = self.recv_pwp_message()
     if response is None:
         return None
     msg_id, payload = response
@@ -302,7 +301,7 @@ class Handler:
       return None
     if(msg_id == 4):
       # Have
-      # Update peer_info 
+      # Update peer_info
       piece_index  = (struct.unpack("!i", payload[0:4]))[0]
       peer_info.update(self.pid, piece_index)
       #print "broadcast recv: " + `piece_index`
@@ -455,6 +454,7 @@ class RequestHandler(Handler):
         #print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
+            self.connected_peers.add(self.pid)
             self.send_bitfield()
             #print "sent bitfield in handle"
             if(self.recv_pwp() == 5):
