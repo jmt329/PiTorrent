@@ -79,6 +79,17 @@ class PeerList:
           return True
       return False
 
+  # returns true if sha1(e) is in connected['key']
+  def contains_hashed_key(self, key, e):
+    e_sha1 = hashlib.sha1()
+    e_sha1.update(e)
+    hashed = e_sha1.digest()
+    with self.lock:
+      for p in self.connected:
+        if(p[key] == hashed):
+          return True
+      return False
+
   # returns a list of peer_ids
   def peer_ids(self):
     with self.lock:
@@ -126,6 +137,7 @@ class Requester(Thread):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((peer['ip'], int(peer['port'])))
         rh = RequestHandler(sock, self.requesting_from, self.potential_peers)
+        print "Calling rh.handle for peer_id: " + peer['peer_id']
         rh.handle()
 
 class Handler:
@@ -175,7 +187,7 @@ class Handler:
     # check if peer is valid (peer_id is not mine, not already connected and in
     # list from tracker)
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
-       (self.potential_peers.contains_key('peer_id', hs[48:]))):
+       (self.potential_peers.contains_hashed_key('peer_id', hs[48:]))):
       print "Same name as current peer"
       return False
     self.connected_peers.add(hs[48:])
@@ -225,7 +237,7 @@ class RequestHandler(Handler):
     remote_hs = self.recv()
     if(not remote_hs or not self.check_handshake(remote_hs)):
         print "closing socket"
-        clientsocket.close()
+        self.sock.close()
         return False
     else:
         print "Handshake done"
