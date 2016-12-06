@@ -78,7 +78,6 @@ class PeerList:
     with self.lock:
       while(len(self.connected) == 0):
         self.noPeers.wait()
-      print self.connected
       return self.connected.pop()
 
   def update(self, new_lst):
@@ -101,10 +100,6 @@ class PeerList:
       for p in self.connected:
         key_sha1 = hashlib.sha1()
         key_sha1.update(p[key])
-        print "==========Contains hashed key============="
-        print `key_sha1.digest()`
-        print `e`
-        print "=========================================="
         if(key_sha1.digest() == e):
           return True
       return False
