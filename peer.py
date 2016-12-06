@@ -161,7 +161,7 @@ class Handler:
     # TODO: added data structures for state of each piece (empty, downloading, finished)
 
   def send(self, message):
-    self.sock.send(message)
+    self.sock.sendall(message)
 
   def recv(self):
     return self.sock.recv(BUFFER_SIZE)
@@ -253,9 +253,9 @@ class Handler:
   def recv_pwp(self):
     print "in recv_pwp"
     payload = self.recv()
-    while(len(payload) == 0):
-      print "spinning"
-      payload = self.recv()
+    if(len(payload) == 0):
+      # connection is closed
+      pass
     print "len of payload is " + str(len(payload))
     msg = bytearray(payload)
     print "len of unpack arg" + str(len(str(msg[0:4])))
@@ -278,6 +278,7 @@ class Handler:
 
   def send_bitfield(self):
     bf = self.piece_status.get_bitfield()
+    print "send_bitfield: len(bf) = " + str(len(bf))
     self.send_pwp(5, bf.tobytes())
     print "Sent bitfield"
 
