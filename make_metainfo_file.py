@@ -24,7 +24,8 @@ with open(filename, 'rb') as f:
     # hash each piece with sha1 and store in meta_info
     h = hashlib.sha1()
     h.update(piece)
-    pieces += str(h.digest())
+    # Hacky fix to solve http server get errors
+    pieces += str(h.digest()).replace('&','S')
     piece = f.read(PIECE_SIZE)
     length += len(piece)
 

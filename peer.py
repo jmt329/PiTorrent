@@ -533,7 +533,8 @@ class ConnectionHandler(Handler):
 def get_peers_from_tracker():
     info_sha1 = hashlib.sha1()
     info_sha1.update(bencode.bencode(info['info']))
-    info_hash = str(bytearray(info_sha1.digest()))
+    # Hacky fix to handle http_server get errors
+    info_hash = str(bytearray(info_sha1.digest())).replace('&','S')
     payload = {
       'info_hash'  : info_hash,
       'peer_id'    : my_peer_id,
