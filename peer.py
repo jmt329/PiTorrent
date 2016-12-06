@@ -7,6 +7,7 @@ import hashlib
 import requests
 import bencode
 import sys
+from bitarray import bitarray
 from threading import Lock, Condition, Thread
 
 my_host = "0.0.0.0"
@@ -258,10 +259,19 @@ class RequestHandler(Handler):
         return True
 
   def send_pwp(self, messageID, payload):
-    pass
+    # Build peer wire message, expected payload as bytearray
+    length = 1 + len(payload)
+    message = bytearray()
+    message.extend(struct.pack("!i", length))
+    message.append(messageID)
+    message.extend(payload)
+    # Message built, send
+    self.send(message)
 
   def send_bitfield(self):
-    pass
+    bf = self.piece_status.get_bifield()
+    self.send_pwp(5, bf.tobytes())
+
 
   def handle(self):
     try:
