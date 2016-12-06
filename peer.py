@@ -7,7 +7,9 @@ import hashlib
 import requests
 import bencode
 import sys
+import struct
 from PieceStatus import PieceStatus
+from PeerInfo    import PeerInfo
 from bitarray    import bitarray
 from threading   import Lock, Condition, Thread
 
@@ -18,6 +20,7 @@ info_filename = ""
 info = {}
 my_peer_id = ""
 seeder = False
+peer_info = None
 # Instead, you can pass command-line arguments
 # -h/--host [IP] -p/--port [PORT]
 # to put your server on a different IP/port.
@@ -154,6 +157,7 @@ class Handler:
     self.connected_peers = connected_peers
     self.potential_peers = potential_peers
     self.piece_status    = piece_status
+    self.pid             = '' # peer id of successful connection
     # TODO: added data structures for state of each piece (empty, downloading, finished)
 
   def send(self, message):
@@ -188,21 +192,14 @@ class Handler:
     # update potential_peers from tracker
     vp = get_peers_from_tracker()
     valid_peers = PeerList(vp)
-
-    # # check connected_peers and close connections if no longer a potential peer
-    # cp = self.connected_peers.peer_ids()
-    # pp = self.potential_peers.peer_ids()
-    # for c in cp:
-    #   if(c not in pp):
-    #     self.connected_peers.remove(c)
-
     # check if peer is valid
     # not already connected to peer, peer_id is not mine, and in list from tracker
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
        (valid_peers.contains_hashed_key('peer_id', hs[48:]))):
       print "Same name as current peer"
       return False
-    # valid peer so add to connected list
+    # save pid and valid peer so add to connected list
+    self.pid = hs[48:]
     self.connected_peers.add(hs[48:])
     # if we did not know about this peer, add it to potential_peers
     if(not self.potential_peers.contains_key('peer_id', hs[48:])):
@@ -235,11 +232,52 @@ class Handler:
       # not a valid handshake
       print "closing socket"
       self.sock.close()
+      return False
     else:
       # send handshake back
       print "Sending handshake back"
       hs = self.make_handshake()
       self.send(hs)
+      return True
+
+  def send_pwp(self, messageID, payload):
+    # Build peer wire message, expected payload as bytearray
+    length = 1 + len(payload)
+    message = bytearray()
+    message.extend(struct.pack("!i", length))
+    message.append(messageID)
+    message.extend(payload)
+    # Message built, send
+    self.send(message)
+
+  def recv_pwp(self):
+    payload = self.recv()
+    msg = bytearray(payload)
+    meg_len = struct.unpack("!i", str(msg[0:4]))[0]
+    assert(len(msg[4:]) == msg_len)
+    msg_id = msg[4]
+    if(msg_id == 4):
+      # Have
+      return 4
+    elif(msg_id == 5):
+      # Bitfield
+      self.recv_bitfield(msg[5:])
+      return 5
+    elif(msg_id == 6):
+      # Request
+      return 6
+    elif(msg_id == 7):
+      # Piece
+      return 7
+
+  def send_bitfield(self):
+    bf = self.piece_status.get_bifield()
+    self.send_pwp(5, bf.tobytes())
+
+  def recv_bitfield(self, bf):
+    peer_info.add(self.pid, bf)
+    print "recived bitfield: " + str(bf)
+
 
 class RequestHandler(Handler):
   """Makes a request to a single client"""
@@ -247,7 +285,6 @@ class RequestHandler(Handler):
   def __init__(self, sock, requesting_from, potential_peers, piece_status):
     Handler.__init__(self, sock, requesting_from, potential_peers, piece_status)
     self.state = "NOT_CONNECTED"
-    self.timeout = 10
 
   def init_handshake(self):
     # first assemble string of bytes
@@ -265,38 +302,22 @@ class RequestHandler(Handler):
         print "Handshake done"
         return True
 
-  def send_pwp(self, messageID, payload):
-    # Build peer wire message, expected payload as bytearray
-    length = 1 + len(payload)
-    message = bytearray()
-    message.extend(struct.pack("!i", length))
-    message.append(messageID)
-    message.extend(payload)
-    # Message built, send
-    self.send(message)
-
-  def send_bitfield(self):
-    bf = self.piece_status.get_bifield()
-    self.send_pwp(5, bf.tobytes())
-
-
   def handle(self):
     try:
       while True:
         print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
-            # TODO: send_bitfield()
-            self.state = "WAIT"
-        elif(self.state == "WAIT"):
-          # TODO: bitfield = self.recv()
-          # move into state REQ
-          pass
+            self.send_bitfield()
+            if(self.recv_pwp() == 5):
+              self.state = "REQ"
+            else:
+              print "something went wrong in RequestHandler"
         elif(self.state == "REQ"):
           # TODO: while I don't have all pieces peer does: request piece
           # if peer doesn't have any pieces I need: wait on CV for file to finish
           # or sender to get a new piece
-          # once full piece is downloaded and verified, send HAVE
+          # once full piece is downloaded and verified, broadcast HAVE
           # if file finishes: close connection, move to state NOT_CONNECTED
           pass
         return
@@ -319,7 +340,18 @@ class ConnectionHandler(Handler):
       while True:
         print("ConnectionHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
-          self.recv_handshake()
+          if(self.recv_handshake()):
+            # sent back handshake
+            self.send_bitfield()
+            if(self.recv_pwp() == 5):
+              self.state = "RESP"
+            else:
+              print "Something went wrong in ConnectionHandler"
+        if(self.state == "RESP"):
+          # read from port
+          # if Have, update
+          # if data, save
+          pass
         self.sock.close()
         return
     except socket.timeout:
@@ -366,6 +398,7 @@ def serverloop():
   potential_peers = PeerList(get_peers_from_tracker())
   numPieces       = len(info['info']['pieces'])/20
   piece_status    = PieceStatus(numPieces, seeder)
+  peer_info       = PeerInfo(numPieces)
 
   for i in xrange(8):
     # Create the 8 seeder threads for requesting connections
