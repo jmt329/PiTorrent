@@ -86,7 +86,7 @@ class PeerList:
     hashed = e_sha1.digest()
     with self.lock:
       for p in self.connected:
-        if(p[key] == hashed):
+        if(str(p[key]) == hashed):
           return True
       return False
 
@@ -188,6 +188,9 @@ class Handler:
     # list from tracker)
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
        (self.potential_peers.contains_hashed_key('peer_id', hs[48:]))):
+      print self.connected_peers.contains(hs[48:])
+      print hs[48:] == name_hash
+      print self.potential_peers.contains_hashed_key('peer_id', hs[48:])
       print "Same name as current peer"
       return False
     self.connected_peers.add(hs[48:])
