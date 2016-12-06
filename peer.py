@@ -95,14 +95,13 @@ class PeerList:
           return True
       return False
 
-  # returns true if sha1(e) is in connected['key']
+  # returns true if e is in sha1(connected['key'])
   def contains_hashed_key(self, key, e):
-    e_sha1 = hashlib.sha1()
-    e_sha1.update(e)
-    hashed = e_sha1.digest()
     with self.lock:
       for p in self.connected:
-        if(str(p[key]) == hashed):
+        key_sha1 = hashlib.sha1()
+        key_sha1.update(p[key])
+        if(key_sha1.digest == e):
           return True
       return False
 
@@ -123,7 +122,6 @@ class Seeder(Thread):
   def __init__(self, connectionQueue, seeding_to, potential_peers, \
                piece_status, file_builder):
     Thread.__init__(self)
-    print hex(id(potential_peers))
     self.connections     = connectionQueue
     self.seeding_to      = seeding_to
     self.potential_peers = potential_peers
@@ -145,7 +143,6 @@ class Requester(Thread):
   def __init__(self, potential_peers, requesting_from, piece_status, \
                file_builder):
     Thread.__init__(self)
-    print hex(id(potential_peers))
     self.potential_peers = potential_peers # peers from server
     self.requesting_from = requesting_from
     self.piece_status    = piece_status
@@ -238,7 +235,7 @@ class Handler:
     # check if peer is valid
     # not already connected to peer, peer_id is not mine, and in list from tracker
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
-       (not valid_peers.contains_key('peer_id', hs[48:]))):
+       (not valid_peers.contains_hashed_key('peer_id', hs[48:]))):
       print "Same name as current peer"
       return False
     # save pid and valid peer so add to connected list
