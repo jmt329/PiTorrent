@@ -8,6 +8,7 @@ import requests
 import bencode
 import sys
 import struct
+from time import sleep
 from PieceStatus import PieceStatus
 from PeerInfo    import PeerInfo
 from bitarray    import bitarray
@@ -246,7 +247,7 @@ class Handler:
     return nameLength + protocolName + reserved + info_hash + name_hash
 
   def recv_handshake(self):
-    hs = self.recv()
+    hs = self.recvall(68)
     # check handshake
     if(not self.check_handshake(hs)):
       # not a valid handshake
@@ -321,7 +322,7 @@ class RequestHandler(Handler):
     print "Sending Handshake"
     self.send(hs)
     # check recived handshake
-    remote_hs = self.recv()
+    remote_hs = self.recvall(68)
     if(not remote_hs or not self.check_handshake(remote_hs)):
         print "closing socket"
         self.sock.close()
@@ -338,7 +339,7 @@ class RequestHandler(Handler):
       payload.extend(struct.pack("!i", bo))
       payload.extend(struct.pack("!i", fixed_block_size))
       self.send_pwp(6, payload)
-      print "sent req for block offset: " + str(b0)
+      print "sent req for block offset: " + str(bo)
 
   def handle(self):
     try:
@@ -346,6 +347,7 @@ class RequestHandler(Handler):
         #print("RequestHandler: got connection")
         if(self.state == "NOT_CONNECTED"):
           if(self.init_handshake()):
+
             self.send_bitfield()
             print "sent bitfield in handle"
             if(self.recv_pwp() == 5):
@@ -359,6 +361,8 @@ class RequestHandler(Handler):
           #print "piece_status: " + str(self.piece_status.pieces)
           #print "peer_info: " + str(peer_info.peers[0].pieces.pieces)
           for p in xrange(numPieces):
+            print 'me: ' + `self.piece_status.check_piece(p)`
+            print 'other: ' + `peer_info.check_piece(self.pid, p)`
             if(self.piece_status.check_piece(p) == 0 and \
                peer_info.check_piece(self.pid, p) == 2):
               print "requesting piece " + str(p)
@@ -394,6 +398,7 @@ class ConnectionHandler(Handler):
       while True:
         if(self.state == "NOT_CONNECTED"):
           if(self.recv_handshake()):
+            sleep(.1)
             # sent back handshake
             self.send_bitfield()
             if(self.recv_pwp() == 5):

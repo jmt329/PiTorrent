@@ -35,7 +35,7 @@ class Peer:
 
   def check_piece(self, piece_idx):
     with self.lock:
-      self.pieces.check_piece(piece_idx)
+      return self.pieces.check_piece(piece_idx)
 
 class PeerInfo:
   """Monitor to handle the information a peer has about all other peers"""
@@ -67,5 +67,10 @@ class PeerInfo:
 
   def check_piece(self, peer_id, piece_idx):
     for p in self.peers:
+      print "p.get_id: " + `p.get_id()`
+      print "peer_id: " + `peer_id`
+      print `p.get_id() == peer_id`
+      print "piece_idx: " + `piece_idx`
+      print 'p.check_piece(p..)' + `p.check_piece(piece_idx)`
       if (p.get_id() == peer_id):
         return p.check_piece(piece_idx)

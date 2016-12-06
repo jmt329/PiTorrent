@@ -53,6 +53,8 @@ class PieceStatus:
 
     def check_piece(self, piece_idx):
         with self.lock:
+            print "PieceStatus:check_piece: " + str(piece_idx)
+            print `self.pieces[piece_idx]`
             return self.pieces[piece_idx]
 
     def is_done(self):
