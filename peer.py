@@ -132,16 +132,11 @@ class Requester(Thread):
       # make hash of peer_id
       id_sha1 = hashlib.sha1()
       id_sha1.update(peer['peer_id'])
-      print peer['peer_id']
-      print len(self.requesting_from.peer_ids())
-      print str(self.requesting_from.peer_ids())
-      print id_sha1.digest()
       if(peer['peer_id'] != my_peer_id and \
          not self.requesting_from.contains(id_sha1.digest())):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((peer['ip'], int(peer['port'])))
         rh = RequestHandler(sock, self.requesting_from, self.potential_peers)
-        print "Calling rh.handle for peer_id: " + peer['peer_id']
         rh.handle()
 
 class Handler:
@@ -181,7 +176,8 @@ class Handler:
     name_sha1.update(my_peer_id)
     name_hash = bytearray(name_sha1.digest())
     # update potential_peers from tracker
-    valid_peers = PeerList(get_peers_from_tracker())
+    vp = get_peers_from_tracker()
+    valid_peers = PeerList(vp)
 
     # # check connected_peers and close connections if no longer a potential peer
     # cp = self.connected_peers.peer_ids()
@@ -194,16 +190,13 @@ class Handler:
     # not already connected to peer, peer_id is not mine, and in list from tracker
     if(self.connected_peers.contains(hs[48:]) or (hs[48:] == name_hash) or \
        (valid_peers.contains_hashed_key('peer_id', hs[48:]))):
-      print self.connected_peers.contains(hs[48:])
-      print hs[48:] == name_hash
-      print valid_peer.contains_hashed_key('peer_id', hs[48:])
       print "Same name as current peer"
       return False
     # valid peer so add to connected list
     self.connected_peers.add(hs[48:])
     # if we did not know about this peer, add it to potential_peers
     if(not self.potential_peers.contains_key('peer_id', hs[48:])):
-      for p in valid_peers:
+      for p in vp:
         id_sha1 = hashlib.sha1()
         id_sha1.update(p['peer_id'])
         if(id_sha1.digest() == hs[48:]):
@@ -250,6 +243,7 @@ class RequestHandler(Handler):
     # first assemble string of bytes
     hs = self.make_handshake()
     # send handshake
+    print "Sending Handshake"
     self.send(hs)
     # check recived handshake
     remote_hs = self.recv()
