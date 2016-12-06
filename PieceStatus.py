@@ -47,3 +47,6 @@ class PieceStatus:
                 self.pieces[i] = 0
             else:
                 self.pieces[i] = 2
+
+    def check_piece(self, piece_idx):
+        return self.pieces[piece_idx] == 2
