@@ -52,25 +52,29 @@ class PeerInfo:
       self.peers.append(p)
 
   def broadcast(self, piece_idx):
-    for p in self.peers:
-      p.add_broadcast(piece_idx)
+    with self.lock:
+      for p in self.peers:
+        p.add_broadcast(piece_idx)
 
   def update(self, peer_id, piece_idx):
-    for p in self.peers:
-      if (p.get_id() == peer_id):
-        p.finished_piece(piece_idx)
+    with self.lock:
+      for p in self.peers:
+        if (p.get_id() == peer_id):
+          p.finished_piece(piece_idx)
 
   def get_broadcast(self, peer_id):
-    for p in self.peers:
-      if (p.get_id() == peer_id):
-        return p.get_broadcast()
+    with self.lock:
+      for p in self.peers:
+        if (p.get_id() == peer_id):
+          return p.get_broadcast()
 
   def check_piece(self, peer_id, piece_idx):
-    for p in self.peers:
-      #print "p.get_id: " + `p.get_id()`
-      #print "peer_id: " + `peer_id`
-      #print `p.get_id() == peer_id`
-      #print "piece_idx: " + `piece_idx`
-      #print 'p.check_piece(p..)' + `p.check_piece(piece_idx)`
-      if (p.get_id() == peer_id):
-        return p.check_piece(piece_idx)
+    with self.lock:
+      for p in self.peers:
+        #print "p.get_id: " + `p.get_id()`
+        #print "peer_id: " + `peer_id`
+        #print `p.get_id() == peer_id`
+        #print "piece_idx: " + `piece_idx`
+        #print 'p.check_piece(p..)' + `p.check_piece(piece_idx)`
+        if (p.get_id() == peer_id):
+          return p.check_piece(piece_idx)
