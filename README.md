@@ -6,11 +6,7 @@ To use:
 
   You must have the following packages installed using pip:
   
-  bencode
-  
-  bitarray
-  
-  requests
+    pip install bencode bitarray requests
 
   To make a metainfo file (pitorrent file, *.pt):
     
